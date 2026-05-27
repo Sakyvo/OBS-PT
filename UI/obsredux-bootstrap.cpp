@@ -175,6 +175,11 @@ static bool validate_ini_file(const char *rel_path, char *failed_path,
 	char abs_path[512];
 	get_portable_path(abs_path, sizeof(abs_path), rel_path);
 
+	if (!os_file_exists(abs_path)) {
+		copy_path(failed_path, failed_path_size, abs_path);
+		return false;
+	}
+
 	config_t *cfg = nullptr;
 	if (config_open(&cfg, abs_path, CONFIG_OPEN_EXISTING) !=
 	    CONFIG_SUCCESS) {
@@ -191,6 +196,11 @@ static bool validate_json_file(const char *rel_path, char *failed_path,
 {
 	char abs_path[512];
 	get_portable_path(abs_path, sizeof(abs_path), rel_path);
+
+	if (!os_file_exists(abs_path)) {
+		copy_path(failed_path, failed_path_size, abs_path);
+		return false;
+	}
 
 	obs_data_t *data = obs_data_create_from_json_file(abs_path);
 	if (!data) {
@@ -229,6 +239,12 @@ static bool validate_preset_files(char *failed_path,
 		return false;
 
 	return true;
+}
+
+bool validate_obsredux_preset_files(char *failed_path,
+				    size_t failed_path_size)
+{
+	return validate_preset_files(failed_path, failed_path_size);
 }
 
 void ShowPresetIntegrityFailureDialog(const char *failed_path)
@@ -547,6 +563,16 @@ int apply_record_path_to_profile(const char *profile_name,
 
 void mark_first_run_completed(void)
 {
+	config_t *global_config = qApp ? GetGlobalConfig() : nullptr;
+	if (global_config) {
+		config_set_bool(global_config, "OBSRedux", "FirstRunCompleted",
+				true);
+		config_set_int(global_config, "OBSRedux", "BootstrapVersion",
+			       OBSREDUX_BOOTSTRAP_VERSION);
+		config_save_safe(global_config, "tmp", nullptr);
+		return;
+	}
+
 	char path[512];
 	get_portable_path(path, sizeof(path), "obs-studio/global.ini");
 	config_t *cfg = nullptr;

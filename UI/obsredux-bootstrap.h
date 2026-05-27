@@ -44,6 +44,8 @@ int sweep_retention(const char *dir, int retention_days, const char *glob,
 		    const sweep_deps_t *deps);
 
 bool is_first_run(void);
+bool validate_obsredux_preset_files(char *failed_path,
+				    size_t failed_path_size);
 void prepare_obsredux_global_config(config_t *global_config);
 int apply_encoder_to_profile(const char *profile_name,
 			      const char *encoder_id);

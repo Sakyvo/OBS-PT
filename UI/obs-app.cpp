@@ -1291,7 +1291,7 @@ static void move_basic_to_scene_collections(void)
 	os_rename(path, new_path);
 }
 
-void OBSApp::AppInit()
+bool OBSApp::AppInit()
 {
 	ProfileScope("OBSApp::AppInit");
 
@@ -1305,6 +1305,15 @@ void OBSApp::AppInit()
 		prepare_obsredux_global_config(globalConfig);
 	if (!InitLocale())
 		throw "Failed to load locale";
+
+	if (!obsreduxMissingGlobalConfigPath.empty()) {
+		ShowPresetIntegrityFailureDialog(
+			obsreduxMissingGlobalConfigPath.c_str());
+		return false;
+	}
+	if (!run_obsredux_early_bootstrap(globalConfig))
+		return false;
+
 	if (!InitTheme())
 		throw "Failed to load theme";
 
@@ -1352,6 +1361,8 @@ void OBSApp::AppInit()
 
 	if (!MakeUserProfileDirs())
 		throw "Failed to create profile directories";
+
+	return true;
 }
 
 const char *OBSApp::GetRenderModule() const
@@ -2124,19 +2135,12 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 
 		bool created_log = false;
 
-		program.AppInit();
+		if (!program.AppInit())
+			return 1;
 		delete_oldest_file(false, "obs-studio/profiler_data");
 
 		OBSTranslator translator;
 		program.installTranslator(&translator);
-
-		if (!obsreduxMissingGlobalConfigPath.empty()) {
-			ShowPresetIntegrityFailureDialog(
-				obsreduxMissingGlobalConfigPath.c_str());
-			return 1;
-		}
-		if (!run_obsredux_early_bootstrap(program.GlobalConfig()))
-			return 1;
 
 		/* --------------------------------------- */
 		/* check and warn if already running       */
@@ -2889,7 +2893,10 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	upgrade_settings();
+	char obsredux_failed_preset[512] = {0};
+	if (validate_obsredux_preset_files(obsredux_failed_preset,
+					   sizeof(obsredux_failed_preset)))
+		upgrade_settings();
 
 	fstream logFile;
 

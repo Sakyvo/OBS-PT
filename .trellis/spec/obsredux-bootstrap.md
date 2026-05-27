@@ -173,7 +173,8 @@ void run_first_run_bootstrap_if_needed(const char *active_profile_name,
 - Must not finalize `[OBSRedux] BootstrapVersion=<current>` until early bootstrap succeeds.
 
 **Early bootstrap**:
-- Runs after the translator is installed and before `OBSApp::OBSInit()` creates `OBSBasic`.
+- `main()` must preflight `validate_obsredux_preset_files()` before `upgrade_settings()`. If a required preset is missing or invalid, skip `upgrade_settings()` so upstream encoder migration cannot recreate missing JSON before the fatal OBSRedux check runs.
+- Runs inside `OBSApp::AppInit()` after `InitLocale()` and before `InitTheme()`, Basic fallback defaults, `move_basic_to_profiles()`, `move_basic_to_scene_collections()`, and `MakeUserProfileDirs()`.
 - This is earlier than `OBSBasic::OBSInit()` reading `SceneCollectionFile` or opening `basic.ini`, so repaired Global Config is active for the first real Profile load.
 - Validates these required files: `obs-studio/global.ini`, `basic/profiles/PotPvP/basic.ini`, `recordEncoder.json`, `streamEncoder.json`, `service.json`, and `basic/scenes/PotPvP.json`.
 - Creates `<Install Root>/recordings`.
@@ -184,7 +185,7 @@ void run_first_run_bootstrap_if_needed(const char *active_profile_name,
 - Receives the already opened `basicConfig` as `active_config`.
 - Probes encoders, rewrites `recordEncoder.json::encoder`, and writes absolute `<Install Root>/recordings` to both `[AdvOut] RecFilePath` and `[SimpleOutput] FilePath`.
 - Shows the first-run dialog only when `[OBSRedux] FirstRunCompleted` is missing/false.
-- Writes `[OBSRedux] FirstRunCompleted=true` after the dialog closes.
+- Writes `[OBSRedux] FirstRunCompleted=true` to the active `OBSApp::globalConfig` after the dialog closes, then saves it. Do not write this marker only through a separate `config_open()` handle; later shutdown saves can overwrite that file with the in-memory Global Config.
 
 ### 4. Validation & Error Matrix
 
@@ -192,6 +193,7 @@ void run_first_run_bootstrap_if_needed(const char *active_profile_name,
 |---|---|
 | `global.ini` missing at process start | Show OBSRedux preset failure dialog and exit; do not silently create a reusable empty Global Config |
 | Required preset INI/JSON missing or invalid | Show OBSRedux preset failure dialog with the first failed path and exit before main window |
+| Required encoder JSON missing before `upgrade_settings()` | Skip `upgrade_settings()`, show OBSRedux preset failure later in `AppInit`, and leave the missing file absent |
 | `recordings/` cannot be created | Show OBSRedux preset failure dialog and exit before main window |
 | `BootstrapVersion` stale but early validation fails | Leave `BootstrapVersion` stale so the next launch retries migration |
 | `FirstRunCompleted=true` and `BootstrapVersion` current | Preserve user Profile / Scene Collection choices |
@@ -201,13 +203,16 @@ void run_first_run_bootstrap_if_needed(const char *active_profile_name,
 - Good: shipped Global Config exists, stale bootstrap version is repaired to PotPvP, early validation passes, then `BootstrapVersion` is written.
 - Base: `FirstRunCompleted=true` and current bootstrap version; early validation still checks the package, but no user choices are overwritten.
 - Bad: missing `global.ini` is opened with `CONFIG_OPEN_ALWAYS`, saved, and then accepted on the next launch as an empty upstream-style config.
+- Bad: missing `recordEncoder.json` is recreated by `upgrade_settings()` before OBSRedux integrity validation sees the damaged package.
+- Bad: `[OBSRedux] FirstRunCompleted=true` is written through a second config handle, then removed when shutdown saves the stale in-memory Global Config.
 
 ### 6. Tests Required
 
 - Missing `global.ini`: launch once and assert the file is still absent after exit.
+- Missing `recordEncoder.json`: launch once and assert the fatal window title appears and the missing file is not recreated.
 - Stale `BootstrapVersion` with valid presets: assert PotPvP startup index, upstream gates, and current `BootstrapVersion`.
 - Stale `BootstrapVersion` with a missing required preset: assert process exits and `BootstrapVersion` remains stale.
-- Fresh first run: assert late bootstrap writes `FirstRunCompleted=true` only after the first-run dialog closes.
+- Fresh first run: assert late bootstrap writes `FirstRunCompleted=true` only after the first-run dialog closes and that the marker remains after shutdown.
 
 ### 7. Wrong vs Correct
 
@@ -230,6 +235,14 @@ prepare_obsredux_global_config(globalConfig);
 if (!run_obsredux_early_bootstrap(globalConfig))
     return 1;
 // early bootstrap writes BootstrapVersion only after validation succeeds
+```
+
+```cpp
+// Before upstream upgrade_settings()
+char failed[512] = {};
+if (validate_obsredux_preset_files(failed, sizeof(failed)))
+    upgrade_settings();
+// otherwise let AppInit show the localized fatal dialog
 ```
 
 ---
@@ -298,6 +311,34 @@ char recordings[512];
 get_portable_path(recordings, sizeof(recordings), "recordings");
 QString body = QTStr("...").arg(QString::fromUtf8(recordings));  // ✅ Dynamic
 ```
+
+### Mistake: Bare Hotkey Names in `basic.ini`
+
+**Symptom**: PageDown or W does not trigger recording/replay buffer even though the preset appears to name the key.
+
+**Cause**: OBS hotkeys in Profile `basic.ini` are serialized JSON binding objects, not bare key strings.
+
+**Fix**: Use OBS key IDs inside a `bindings` array.
+
+**Wrong**:
+```ini
+[Hotkeys]
+OBSBasic.StartRecording=PageDown
+```
+
+**Correct**:
+```ini
+[Hotkeys]
+OBSBasic.StartRecording={"bindings":[{"key":"OBS_KEY_PAGEDOWN"}]}
+```
+
+### Mistake: Completing First Run Through a Separate Config Handle
+
+**Symptom**: Closing the OBSRedux first-run dialog enters the main window, but the next launch shows the dialog again.
+
+**Cause**: `mark_first_run_completed()` writes `FirstRunCompleted=true` through a separately opened `global.ini`, then `OBSApp::globalConfig` later saves its stale in-memory state and removes the marker.
+
+**Fix**: Set `OBSRedux.FirstRunCompleted=true` and `OBSRedux.BootstrapVersion=<current>` on the active `GetGlobalConfig()` handle, then save that handle.
 
 ---
 
