@@ -1,0 +1,8 @@
+{"file": ".trellis/tasks/05-25-step1-portable-bootstrap/prd.md", "reason": "AC1-AC10 是 check 的最终判据；Testing Decisions 矩阵决定哪些用例必须通过。"}
+{"file": ".trellis/tasks/05-25-step1-portable-bootstrap/design.md", "reason": "校验改动是否符合接口契约与启动序列不变量（T3 之前禁止写入、M3 必须在 obs_load_all_modules 之后、Profile 改写仅动 encoder + RecFilePath 字段）。"}
+{"file": ".trellis/tasks/05-25-step1-portable-bootstrap/implement.md", "reason": "Review gate 清单的来源。S1-S8 每个 step 的 gate 都要逐条 check。"}
+{"file": "CONTEXT.md", "reason": "校验文案与日志输出使用的术语是否与项目词汇表一致（不要在 UI 字符串里混用『便携目录』『程序目录』等被 Avoid 的词）。"}
+{"file": "docs/adr/0001-forced-portable-mode.md", "reason": "校验实施是否偏离决策：例如 PR 里不应出现新增的『便携模式开关』或『APPDATA 兼容性 fallback』，凡此类需先回到 ADR 重议。"}
+{"file": "docs/adr/0002-positioning-obs-for-potpvp.md", "reason": "校验默认值未被实施者私下调整（如有人把 cqp 改回 18 或加 HEVC 到优先级表，应被 check 拦下）。"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "M1 复用 os_get_config_path 签名是关键复用决策；M4 复用上游 config-file.c / jansson 而非引入新 INI/JSON 库。check 阶段验证没有重复造轮子。"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "校验 M1 的层放置（libobs 而非 UI）、M4 改写时序（先改 Profile 后弹 UI 后写 FirstRunCompleted）等跨层正确性。"}
