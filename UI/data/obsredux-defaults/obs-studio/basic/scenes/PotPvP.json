@@ -1,0 +1,76 @@
+{
+  "current_scene": "PotPvP Recording",
+  "current_program_scene": "PotPvP Recording",
+  "scene_order": [
+    {
+      "name": "PotPvP Recording"
+    }
+  ],
+  "name": "PotPvP",
+  "sources": [
+    {
+      "versioned_id": "game_capture",
+      "name": "Game Capture",
+      "uuid": "00000000-0000-0000-0000-000000000001",
+      "id": "game_capture",
+      "settings": {
+        "capture_mode": "window",
+        "window": "",
+        "priority": 2,
+        "capture_cursor": true,
+        "allow_transparency": false,
+        "force_scaling": false,
+        "scale_res": "1920x1080",
+        "limit_framerate": false,
+        "capture_overlays": false,
+        "anti_cheat_hook": true,
+        "hook_rate": 1,
+        "capture_any_fullscreen": true,
+        "window_match_priority": 1,
+        "window_match_title": "Minecraft|Lunar Client|Badlion Client"
+      },
+      "filters": [],
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    }
+  ],
+  "scenes": [
+    {
+      "name": "PotPvP Recording",
+      "uuid": "00000000-0000-0000-0000-000000000002",
+      "id": 1,
+      "sources": [
+        {
+          "name": "Game Capture",
+          "source_uuid": "00000000-0000-0000-0000-000000000001",
+          "visible": true,
+          "locked": false,
+          "pos": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0
+          },
+          "rot": 0.0,
+          "crop_top": 0,
+          "crop_right": 0,
+          "crop_bottom": 0,
+          "crop_left": 0,
+          "bounds_type": 0,
+          "bounds_align": 0,
+          "bounds": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        }
+      ]
+    }
+  ],
+  "groups": [],
+  "transitions": []
+}

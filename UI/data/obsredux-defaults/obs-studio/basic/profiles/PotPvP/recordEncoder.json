@@ -1,0 +1,13 @@
+{
+  "encoder": "jim_nvenc",
+  "rate_control": "CQP",
+  "cqp": 25,
+  "preset": "hp",
+  "preset2": "p1",
+  "profile": "high",
+  "tune": "ll",
+  "multipass": "disabled",
+  "bf": 0,
+  "psycho_aq": false,
+  "bitrate": 30000
+}
