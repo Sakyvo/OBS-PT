@@ -1,76 +1,242 @@
 {
-  "current_scene": "PotPvP Recording",
-  "current_program_scene": "PotPvP Recording",
+  "DesktopAudioDevice1": {
+    "balance": 0.5,
+    "deinterlace_field_order": 0,
+    "deinterlace_mode": 0,
+    "enabled": true,
+    "flags": 0,
+    "hotkeys": {
+      "libobs.mute": [],
+      "libobs.push-to-mute": [],
+      "libobs.push-to-talk": [],
+      "libobs.unmute": []
+    },
+    "id": "wasapi_output_capture",
+    "mixers": 255,
+    "monitoring_type": 0,
+    "muted": false,
+    "name": "桌面音频",
+    "prev_ver": 453115908,
+    "private_settings": {},
+    "push-to-mute": false,
+    "push-to-mute-delay": 0,
+    "push-to-talk": false,
+    "push-to-talk-delay": 0,
+    "settings": {
+      "device_id": "default"
+    },
+    "sync": 0,
+    "versioned_id": "wasapi_output_capture",
+    "volume": 1.0
+  },
+  "current_program_scene": "PotPvP",
+  "current_scene": "PotPvP",
+  "current_transition": "渐变",
+  "groups": [],
+  "modules": {
+    "auto-scene-switcher": {
+      "active": false,
+      "interval": 300,
+      "non_matching_scene": "",
+      "switch_if_not_matching": false,
+      "switches": []
+    },
+    "captions": {
+      "enabled": false,
+      "lang_id": 2052,
+      "provider": "mssapi",
+      "source": ""
+    },
+    "decklink_captions": {
+      "source": ""
+    },
+    "output-timer": {
+      "autoStartRecordTimer": false,
+      "autoStartStreamTimer": false,
+      "pauseRecordTimer": false,
+      "recordTimerHours": 0,
+      "recordTimerMinutes": 0,
+      "recordTimerSeconds": 0,
+      "streamTimerHours": 0,
+      "streamTimerMinutes": 0,
+      "streamTimerSeconds": 0
+    },
+    "scripts-tool": []
+  },
+  "name": "PotPvP",
+  "preview_locked": false,
+  "quick_transitions": [],
+  "saved_projectors": [],
+  "scaling_enabled": false,
+  "scaling_level": 0,
+  "scaling_off_x": 0.0,
+  "scaling_off_y": 0.0,
   "scene_order": [
     {
-      "name": "PotPvP Recording"
+      "name": "PotPvP"
     }
   ],
-  "name": "PotPvP",
   "sources": [
     {
-      "versioned_id": "game_capture",
-      "name": "Game Capture",
-      "uuid": "00000000-0000-0000-0000-000000000001",
+      "balance": 0.5,
+      "deinterlace_field_order": 0,
+      "deinterlace_mode": 0,
+      "enabled": true,
+      "flags": 0,
+      "hotkeys": {
+        "OBSBasic.SelectScene": [],
+        "libobs.hide_scene_item.Display": [],
+        "libobs.hide_scene_item.Minecraft": [],
+        "libobs.show_scene_item.Display": [],
+        "libobs.show_scene_item.Minecraft": []
+      },
+      "id": "scene",
+      "mixers": 0,
+      "monitoring_type": 0,
+      "muted": false,
+      "name": "PotPvP",
+      "prev_ver": 453115908,
+      "private_settings": {},
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "settings": {
+        "custom_size": false,
+        "id_counter": 2,
+        "items": [
+          {
+            "align": 5,
+            "blend_type": "normal",
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_align": 0,
+            "bounds_type": 0,
+            "crop_bottom": 0,
+            "crop_left": 0,
+            "crop_right": 0,
+            "crop_top": 0,
+            "group_item_backup": false,
+            "hide_transition": {
+              "duration": 0
+            },
+            "id": 2,
+            "locked": false,
+            "name": "Display",
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "private_settings": {},
+            "rot": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_filter": "disable",
+            "show_transition": {
+              "duration": 0
+            },
+            "visible": true
+          },
+          {
+            "align": 5,
+            "blend_type": "normal",
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_align": 0,
+            "bounds_type": 0,
+            "crop_bottom": 0,
+            "crop_left": 0,
+            "crop_right": 0,
+            "crop_top": 0,
+            "group_item_backup": false,
+            "hide_transition": {
+              "duration": 0
+            },
+            "id": 1,
+            "locked": false,
+            "name": "Minecraft",
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "private_settings": {},
+            "rot": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_filter": "disable",
+            "show_transition": {
+              "duration": 0
+            },
+            "visible": true
+          }
+        ]
+      },
+      "sync": 0,
+      "versioned_id": "scene",
+      "volume": 1.0
+    },
+    {
+      "balance": 0.5,
+      "deinterlace_field_order": 0,
+      "deinterlace_mode": 0,
+      "enabled": true,
+      "flags": 0,
+      "hotkeys": {
+        "hotkey_start": [],
+        "hotkey_stop": []
+      },
       "id": "game_capture",
+      "mixers": 0,
+      "monitoring_type": 0,
+      "muted": false,
+      "name": "Minecraft",
+      "prev_ver": 453115908,
+      "private_settings": {},
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
       "settings": {
         "capture_mode": "window",
-        "window": "",
-        "priority": 2,
-        "capture_cursor": true,
-        "allow_transparency": false,
-        "force_scaling": false,
-        "scale_res": "1920x1080",
-        "limit_framerate": false,
-        "capture_overlays": false,
-        "anti_cheat_hook": true,
-        "hook_rate": 1,
-        "capture_any_fullscreen": true,
-        "window_match_priority": 1,
-        "window_match_title": "Minecraft|Lunar Client|Badlion Client"
+        "priority": 0,
+        "window": "Lunar Client 1.7.10 (v2.17.7-2447):LWJGL:javaw.exe"
       },
-      "filters": [],
-      "hotkeys": {},
-      "deinterlace_mode": 0,
-      "deinterlace_field_order": 0,
-      "monitoring_type": 0,
-      "private_settings": {}
-    }
-  ],
-  "scenes": [
+      "sync": 0,
+      "versioned_id": "game_capture",
+      "volume": 1.0
+    },
     {
-      "name": "PotPvP Recording",
-      "uuid": "00000000-0000-0000-0000-000000000002",
-      "id": 1,
-      "sources": [
-        {
-          "name": "Game Capture",
-          "source_uuid": "00000000-0000-0000-0000-000000000001",
-          "visible": true,
-          "locked": false,
-          "pos": {
-            "x": 0.0,
-            "y": 0.0
-          },
-          "scale": {
-            "x": 1.0,
-            "y": 1.0
-          },
-          "rot": 0.0,
-          "crop_top": 0,
-          "crop_right": 0,
-          "crop_bottom": 0,
-          "crop_left": 0,
-          "bounds_type": 0,
-          "bounds_align": 0,
-          "bounds": {
-            "x": 0.0,
-            "y": 0.0
-          }
-        }
-      ]
+      "balance": 0.5,
+      "deinterlace_field_order": 0,
+      "deinterlace_mode": 0,
+      "enabled": true,
+      "flags": 0,
+      "hotkeys": {},
+      "id": "monitor_capture",
+      "mixers": 0,
+      "monitoring_type": 0,
+      "muted": false,
+      "name": "Display",
+      "prev_ver": 453115908,
+      "private_settings": {},
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "settings": {},
+      "sync": 0,
+      "versioned_id": "monitor_capture",
+      "volume": 1.0
     }
   ],
-  "groups": [],
+  "transition_duration": 300,
   "transitions": []
 }

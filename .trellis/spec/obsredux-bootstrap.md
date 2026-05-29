@@ -267,6 +267,60 @@ install(DIRECTORY data/obsredux-defaults/
 
 `${OBS_DATA_DESTINATION}` typically resolves to `<Install Root>/data/obs-studio`. Appending `/../` navigates up to Install Root, allowing direct placement of `obs-studio/` directory structure.
 
+### Scene Collection JSON Contract
+
+OBSRedux default scene collections must use the same shape that `OBSBasic::LoadData()` writes and reads:
+
+- Top-level global audio devices, e.g. `DesktopAudioDevice1`, are loaded by `LoadAudioDevice()`.
+- Top-level `sources[]` contains the scene source (`id: "scene"`) and child sources (`game_capture`, `monitor_capture`, etc.).
+- Scene membership lives under the scene source's `settings.items[]`.
+- `settings.items[]` is stored bottom-to-top; later items render later and appear higher in the UI source list.
+- Do not add microphone/Aux devices to the shipped PotPvP default unless the product requirement explicitly changes.
+
+For the PotPvP preset, `DesktopAudioDevice1` should be a `wasapi_output_capture` source with `settings.device_id = "default"`. The `PotPvP` scene should contain `Display` below `Minecraft`, which means the JSON item order is `Display` first, then `Minecraft`.
+
+#### Wrong
+```json
+{
+  "current_scene": "PotPvP Recording",
+  "sources": [
+    {"id": "game_capture", "name": "Game Capture"}
+  ],
+  "scenes": [
+    {
+      "name": "PotPvP Recording",
+      "sources": [{"name": "Game Capture"}]
+    }
+  ]
+}
+```
+
+#### Correct
+```json
+{
+  "DesktopAudioDevice1": {
+    "id": "wasapi_output_capture",
+    "name": "桌面音频",
+    "settings": {"device_id": "default"}
+  },
+  "current_scene": "PotPvP",
+  "sources": [
+    {
+      "id": "scene",
+      "name": "PotPvP",
+      "settings": {
+        "items": [
+          {"name": "Display", "visible": true},
+          {"name": "Minecraft", "visible": true}
+        ]
+      }
+    },
+    {"id": "game_capture", "name": "Minecraft"},
+    {"id": "monitor_capture", "name": "Display"}
+  ]
+}
+```
+
 ---
 
 ## 5. Common Mistakes
