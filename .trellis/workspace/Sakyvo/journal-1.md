@@ -74,3 +74,37 @@ Updated the PotPvP default scene collection to OBS-loadable sources format with 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Fix OBSRedux all-black render (MSVC /O2 vec4 union miscompile)
+
+**Date**: 2026-06-04
+**Task**: Fix OBSRedux all-black render (MSVC /O2 vec4 union miscompile)
+**Package**: plugins/win-dshow/libdshowcapture
+**Branch**: `master`
+
+### Summary
+
+Root-caused the blank preview/black recording to the VS 18 2026 cl.exe /O2 miscompiling vec4 union float/__m128 type-punning in libobs/graphics/matrix4.c (matrix4_mul returned a garbage identity), collapsing the global render ViewProj matrix to black for every source. Fix: MSVC-guarded #pragma optimize("",off/on) on matrix4.c (required) and matrix3.c (defensive, only other graphics .c using __m128). Removed temporary [obsredux-diag] instrumentation from d3d11-subsystem.cpp; kept the one-shot DXGI duplicator/monitor-capture lifecycle logs. Added spec obsredux-graphics-msvc.md and redirected the display-capture spec root cause. trellis-check passed (clean rebuild, zero warnings); user-confirmed non-black preview; deployed obs.dll + libobs-d3d11.dll.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cb469b2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
