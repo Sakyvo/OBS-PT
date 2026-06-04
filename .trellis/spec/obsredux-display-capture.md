@@ -11,6 +11,20 @@ Windows Display Capture is the `monitor_capture` source registered from
 uses DXGI Desktop Duplication through `libobs-d3d11/d3d11-duplicator.cpp`, with
 WGC as an alternate method.
 
+## Root Cause Note (2026-06-04)
+
+The original "display capture blank" report was NOT a duplicator fault. The
+preview/recording was black for **every** source because the render ViewProj
+matrix was collapsing to a degenerate matrix — a `cl.exe` `/O2` miscompile of
+the vec4 union type-punning in `libobs/graphics/matrix4.c`. The duplicator
+diagnostics below confirmed DXGI was producing valid textures the whole time.
+
+> Before chasing this capture path again, verify the global render matrix first.
+> See [`obsredux-graphics-msvc.md`](./obsredux-graphics-msvc.md) for the symptom,
+> diagnosis, and the MSVC `#pragma optimize` guard. The diagnostic logs in this
+> spec remain useful, but a blank capture on the VS 18 2026 toolchain points at
+> the math-TU miscompile, not the duplicator.
+
 ## Diagnostic Contract
 
 Display Capture must not fail silently when preview or recording has no desktop
