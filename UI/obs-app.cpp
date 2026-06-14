@@ -40,7 +40,7 @@
 
 #include "qt-wrappers.hpp"
 #include "obs-app.hpp"
-#include "obsredux-bootstrap.h"
+#include "obspt-bootstrap.h"
 #include "log-viewer.hpp"
 #include "slider-ignorewheel.hpp"
 #include "window-basic-main.hpp"
@@ -76,7 +76,7 @@ static log_handler_t def_log_handler;
 static string currentLogFile;
 static string lastLogFile;
 static string lastCrashLogFile;
-static string obsreduxMissingGlobalConfigPath;
+static string obsptMissingGlobalConfigPath;
 
 const bool portable_mode = true;
 static bool multi = false;
@@ -719,7 +719,7 @@ bool OBSApp::InitGlobalConfig()
 	}
 
 	bool global_config_existed = os_file_exists(path);
-	obsreduxMissingGlobalConfigPath =
+	obsptMissingGlobalConfigPath =
 		global_config_existed ? string() : string(path);
 
 	int errorcode = globalConfig.Open(path, CONFIG_OPEN_ALWAYS);
@@ -1301,17 +1301,17 @@ bool OBSApp::AppInit()
 		throw "Failed to create required user directories";
 	if (!InitGlobalConfig())
 		throw "Failed to initialize global config";
-	if (obsreduxMissingGlobalConfigPath.empty())
-		prepare_obsredux_global_config(globalConfig);
+	if (obsptMissingGlobalConfigPath.empty())
+		prepare_obspt_global_config(globalConfig);
 	if (!InitLocale())
 		throw "Failed to load locale";
 
-	if (!obsreduxMissingGlobalConfigPath.empty()) {
+	if (!obsptMissingGlobalConfigPath.empty()) {
 		ShowPresetIntegrityFailureDialog(
-			obsreduxMissingGlobalConfigPath.c_str());
+			obsptMissingGlobalConfigPath.c_str());
 		return false;
 	}
-	if (!run_obsredux_early_bootstrap(globalConfig))
+	if (!run_obspt_early_bootstrap(globalConfig))
 		return false;
 
 	if (!InitTheme())
@@ -2887,15 +2887,15 @@ int main(int argc, char *argv[])
 			exit(0);
 
 		} else if (arg_is(argv[i], "--version", "-V")) {
-			std::cout << "OBSRedux - "
+			std::cout << "OBS-PT - "
 				  << App()->GetVersionString() << "\n";
 			exit(0);
 		}
 	}
 
-	char obsredux_failed_preset[512] = {0};
-	if (validate_obsredux_preset_files(obsredux_failed_preset,
-					   sizeof(obsredux_failed_preset)))
+	char obspt_failed_preset[512] = {0};
+	if (validate_obspt_preset_files(obspt_failed_preset,
+					   sizeof(obspt_failed_preset)))
 		upgrade_settings();
 
 	fstream logFile;

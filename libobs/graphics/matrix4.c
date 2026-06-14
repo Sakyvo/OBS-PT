@@ -20,7 +20,7 @@
 #include "matrix3.h"
 #include "quat.h"
 
-/* OBSRedux: Visual Studio 18 2026 cl.exe miscompiles the vec4 union
+/* OBS-PT: Visual Studio 18 2026 cl.exe miscompiles the vec4 union
  * float/__m128 type-punning in these matrix routines at /O2 (matrix4_mul
  * returns garbage for identity input), collapsing the render view matrix to
  * black. Upstream guards this on GCC/Clang via -fno-strict-aliasing; MSVC has

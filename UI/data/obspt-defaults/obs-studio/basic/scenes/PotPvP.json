@@ -139,7 +139,7 @@
             "show_transition": {
               "duration": 0
             },
-            "visible": true
+            "visible": false
           },
           {
             "align": 5,
@@ -231,7 +231,9 @@
       "push-to-mute-delay": 0,
       "push-to-talk": false,
       "push-to-talk-delay": 0,
-      "settings": {},
+      "settings": {
+        "method": 0
+      },
       "sync": 0,
       "versioned_id": "monitor_capture",
       "volume": 1.0

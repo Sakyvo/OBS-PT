@@ -21,7 +21,7 @@
 #include "plane.h"
 #include "quat.h"
 
-/* OBSRedux: guard against the same Visual Studio 18 2026 cl.exe /O2 miscompile
+/* OBS-PT: guard against the same Visual Studio 18 2026 cl.exe /O2 miscompile
  * of vec3/vec4 union float/__m128 type-punning that collapsed the render matrix
  * to black (see matrix4.c). matrix3.c is the only other graphics TU using
  * __m128 directly; disable optimization defensively for this small, non-hot TU. */

@@ -1,14 +1,14 @@
-# OBSRedux Bootstrap Module Spec
+# OBS-PT Bootstrap Module Spec
 
 **Status**: Active  
-**Owner**: OBSRedux Core  
-**Last Updated**: 2026-05-27
+**Owner**: OBS-PT Core  
+**Last Updated**: 2026-06-14 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand)
 
 ## Overview
 
-The `obsredux-bootstrap` module provides portable installation support for OBSRedux, including path resolution, write permission probing, encoder detection, log retention, and first-run configuration.
+The `obspt-bootstrap` module provides portable installation support for OBS-PT, including path resolution, write permission probing, encoder detection, log retention, and first-run configuration.
 
-**Location**: `UI/obsredux-bootstrap.{h,cpp}`
+**Location**: `UI/obspt-bootstrap.{h,cpp}`
 
 ---
 
@@ -151,50 +151,70 @@ static bool encoder_registered(const char *id) {
 
 ### 1. Scope / Trigger
 
-OBSRedux owns upstream first-run state. This bootstrap spans Global Config, preset file integrity, loaded Profile config, encoder modules, and Qt dialogs, so the timing contract is split across application startup and `OBSBasic::OBSInit()`.
+OBS-PT owns upstream first-run state. This bootstrap spans Global Config, preset file integrity, loaded Profile config, encoder modules, and Qt dialogs, so the timing contract is split across application startup and `OBSBasic::OBSInit()`.
 
 ### 2. Signatures
 
 ```cpp
-void prepare_obsredux_global_config(config_t *global_config);
-bool run_obsredux_early_bootstrap(config_t *global_config);
+void prepare_obspt_global_config(config_t *global_config);
+bool run_obspt_early_bootstrap(config_t *global_config);
 void run_first_run_bootstrap_if_needed(const char *active_profile_name,
                                        config_t *active_config);
+
+// Hardware-adaptive defaults (bootstrap v3)
+static void apply_monitor_video_to_profile(const char *profile_name); // early, repair-gated
+int apply_encoder_to_profile(const char *profile_name,
+                             const char *encoder_id, int cqp);         // late, full template
 ```
+
+`OBSPT_BOOTSTRAP_VERSION` is currently **3** (`UI/obspt-bootstrap.h`).
 
 ### 3. Contracts
 
 **AppInit preparation**:
 - Runs after `OBSApp::InitGlobalConfig()` and before `OBSApp::InitLocale()`.
 - Must run only when shipped `obs-studio/global.ini` existed at startup.
-- Repairs `[Basic] Profile/ProfileDir/SceneCollection/SceneCollectionFile` to `PotPvP` only when `[OBSRedux] FirstRunCompleted` is missing/false or `BootstrapVersion` is stale.
+- Repairs `[Basic] Profile/ProfileDir/SceneCollection/SceneCollectionFile` to `PotPvP` only when `[OBSPT] FirstRunCompleted` is missing/false or `BootstrapVersion` is stale.
 - Writes upstream gates `General.FirstRun=true`, `General.LastVersion=LIBOBS_API_VER`, and `General.EnableAutoUpdates=false`.
-- Must not write `[OBSRedux] FirstRunCompleted=true`.
-- Must not finalize `[OBSRedux] BootstrapVersion=<current>` until early bootstrap succeeds.
+- Must not write `[OBSPT] FirstRunCompleted=true`.
+- Must not finalize `[OBSPT] BootstrapVersion=<current>` until early bootstrap succeeds.
 
 **Early bootstrap**:
-- `main()` must preflight `validate_obsredux_preset_files()` before `upgrade_settings()`. If a required preset is missing or invalid, skip `upgrade_settings()` so upstream encoder migration cannot recreate missing JSON before the fatal OBSRedux check runs.
+- `main()` must preflight `validate_obspt_preset_files()` before `upgrade_settings()`. If a required preset is missing or invalid, skip `upgrade_settings()` so upstream encoder migration cannot recreate missing JSON before the fatal OBS-PT check runs.
 - Runs inside `OBSApp::AppInit()` after `InitLocale()` and before `InitTheme()`, Basic fallback defaults, `move_basic_to_profiles()`, `move_basic_to_scene_collections()`, and `MakeUserProfileDirs()`.
 - This is earlier than `OBSBasic::OBSInit()` reading `SceneCollectionFile` or opening `basic.ini`, so repaired Global Config is active for the first real Profile load.
 - Validates these required files: `obs-studio/global.ini`, `basic/profiles/PotPvP/basic.ini`, `recordEncoder.json`, `streamEncoder.json`, `service.json`, and `basic/scenes/PotPvP.json`.
 - Creates `<Install Root>/recordings`.
 - Writes `BootstrapVersion` only after the required files validate and `recordings` exists.
+- **Adaptive video (v3)**: when repair is needed (`g_late_bootstrap_needed`), calls `apply_monitor_video_to_profile(PotPvP)` here — BEFORE the main window exists. Detects the primary monitor (`QGuiApplication::primaryScreen()` size × `devicePixelRatio`, physical px, **no >1080p cap**) and writes `Video` `BaseCX=OutputCX`/`BaseCY=OutputCY` = monitor resolution (base==output) plus `FPSType=2`/`FPSNum=480`/`FPSDen=1` to `PotPvP/basic.ini`. Must precede `OBSBasic::OBSInit()`→`ResetVideo()` so resolution/fps take effect the same session (uses `config_set_uint` user-values so `InitBasicConfigDefaults` does not override). Repair-gated: never runs on a normal launch, so user edits persist between version bumps. Null/headless screen → skip (ResetVideo's 1920×1080 fallback covers).
 
 **Late bootstrap**:
 - Runs inside `OBSBasic::OBSInit()` after `obs_post_load_modules()`.
 - Receives the already opened `basicConfig` as `active_config`.
-- Probes encoders, rewrites `recordEncoder.json::encoder`, and writes absolute `<Install Root>/recordings` to both `[AdvOut] RecFilePath` and `[SimpleOutput] FilePath`.
-- Shows the first-run dialog only when `[OBSRedux] FirstRunCompleted` is missing/false.
-- Writes `[OBSRedux] FirstRunCompleted=true` to the active `OBSApp::globalConfig` after the dialog closes, then saves it. Do not write this marker only through a separate `config_open()` handle; later shutdown saves can overwrite that file with the in-memory Global Config.
+- Probes encoders, then writes a **COMPLETE per-encoder** `recordEncoder.json` via `apply_encoder_to_profile(profile, encoder_id, cqp)` — builds a **fresh `obs_data`** (NOT load-and-mutate), so no encoder-mismatched keys ever survive an encoder switch. CQP/CRF/QP is set by resolution: `BaseCY < 1080 → 20`, else `26` (read from `active_config`). Also writes absolute `<Install Root>/recordings` to both `[AdvOut] RecFilePath` and `[SimpleOutput] FilePath`.
+- Shows the first-run dialog only when `[OBSPT] FirstRunCompleted` is missing/false.
+- Writes `[OBSPT] FirstRunCompleted=true` to the active `OBSApp::globalConfig` after the dialog closes, then saves it. Do not write this marker only through a separate `config_open()` handle; later shutdown saves can overwrite that file with the in-memory Global Config.
+
+**Per-encoder `recordEncoder.json` templates** (NV12 / 8-bit; `cqp` = 20 or 26 by resolution). A blind id-swap that leaves NVENC keys on QSV/x264/AMF is a defect:
+
+| encoder_id | keys |
+|---|---|
+| `jim_nvenc` (default) | `rate_control:"CQP"`, `cqp`, `preset:"hp"`, `preset2:"p1"`, `profile:"high"`, `tune:"ll"`, `multipass:"disabled"`, `bf:0`, `psycho_aq:false` |
+| `ffmpeg_nvenc` | `rate_control:"CQP"`, `cqp`, `preset:"hq"`, `profile:"high"` |
+| `obs_qsv11` | `rate_control:"CQP"`, `qpi=qpp=qpb=cqp`, `target_usage:"quality"`, `profile:"high"`, `keyint_sec:2`, `bframes:3`, `latency:"normal"` |
+| `amd_amf_h264` | `Usage:0`, `Profile:100`, `RateControlMethod:0`, `QP.IFrame=QP.PFrame=QP.BFrame=cqp`, `VBVBuffer:1`, `VBVBuffer.Size:100000`, `KeyframeInterval:2.0`, `BFrame.Pattern:0` (forward-looking; enc-amf submodule empty) |
+| `obs_x264` | `rate_control:"CRF"`, `crf:cqp`, `preset:"veryfast"`, `profile:"high"`, `tune:""`, `keyint_sec:2`, `x264opts:""` (drop all NVENC keys; 480fps software is a correctness fallback, not performant) |
+
+OBS treats CQP/CRF/QP as one 0–51 quality scale (`window-basic-main-outputs.cpp` `CalcCRF`), so the same `cqp` value maps 1:1 across all encoders.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Required behavior |
 |---|---|
-| `global.ini` missing at process start | Show OBSRedux preset failure dialog and exit; do not silently create a reusable empty Global Config |
-| Required preset INI/JSON missing or invalid | Show OBSRedux preset failure dialog with the first failed path and exit before main window |
-| Required encoder JSON missing before `upgrade_settings()` | Skip `upgrade_settings()`, show OBSRedux preset failure later in `AppInit`, and leave the missing file absent |
-| `recordings/` cannot be created | Show OBSRedux preset failure dialog and exit before main window |
+| `global.ini` missing at process start | Show OBS-PT preset failure dialog and exit; do not silently create a reusable empty Global Config |
+| Required preset INI/JSON missing or invalid | Show OBS-PT preset failure dialog with the first failed path and exit before main window |
+| Required encoder JSON missing before `upgrade_settings()` | Skip `upgrade_settings()`, show OBS-PT preset failure later in `AppInit`, and leave the missing file absent |
+| `recordings/` cannot be created | Show OBS-PT preset failure dialog and exit before main window |
 | `BootstrapVersion` stale but early validation fails | Leave `BootstrapVersion` stale so the next launch retries migration |
 | `FirstRunCompleted=true` and `BootstrapVersion` current | Preserve user Profile / Scene Collection choices |
 
@@ -203,8 +223,8 @@ void run_first_run_bootstrap_if_needed(const char *active_profile_name,
 - Good: shipped Global Config exists, stale bootstrap version is repaired to PotPvP, early validation passes, then `BootstrapVersion` is written.
 - Base: `FirstRunCompleted=true` and current bootstrap version; early validation still checks the package, but no user choices are overwritten.
 - Bad: missing `global.ini` is opened with `CONFIG_OPEN_ALWAYS`, saved, and then accepted on the next launch as an empty upstream-style config.
-- Bad: missing `recordEncoder.json` is recreated by `upgrade_settings()` before OBSRedux integrity validation sees the damaged package.
-- Bad: `[OBSRedux] FirstRunCompleted=true` is written through a second config handle, then removed when shutdown saves the stale in-memory Global Config.
+- Bad: missing `recordEncoder.json` is recreated by `upgrade_settings()` before OBS-PT integrity validation sees the damaged package.
+- Bad: `[OBSPT] FirstRunCompleted=true` is written through a second config handle, then removed when shutdown saves the stale in-memory Global Config.
 
 ### 6. Tests Required
 
@@ -220,8 +240,8 @@ void run_first_run_bootstrap_if_needed(const char *active_profile_name,
 
 ```cpp
 globalConfig.Open(path, CONFIG_OPEN_ALWAYS);
-prepare_obsredux_global_config(globalConfig); // can save a synthetic global.ini
-config_set_int(globalConfig, "OBSRedux", "BootstrapVersion", CURRENT);
+prepare_obspt_global_config(globalConfig); // can save a synthetic global.ini
+config_set_int(globalConfig, "OBSPT", "BootstrapVersion", CURRENT);
 ```
 
 #### Correct
@@ -230,9 +250,9 @@ config_set_int(globalConfig, "OBSRedux", "BootstrapVersion", CURRENT);
 if (global_ini_missing_at_startup)
     exit_with_preset_failure();
 
-prepare_obsredux_global_config(globalConfig);
+prepare_obspt_global_config(globalConfig);
 
-if (!run_obsredux_early_bootstrap(globalConfig))
+if (!run_obspt_early_bootstrap(globalConfig))
     return 1;
 // early bootstrap writes BootstrapVersion only after validation succeeds
 ```
@@ -240,7 +260,7 @@ if (!run_obsredux_early_bootstrap(globalConfig))
 ```cpp
 // Before upstream upgrade_settings()
 char failed[512] = {};
-if (validate_obsredux_preset_files(failed, sizeof(failed)))
+if (validate_obspt_preset_files(failed, sizeof(failed)))
     upgrade_settings();
 // otherwise let AppInit show the localized fatal dialog
 ```
@@ -251,12 +271,12 @@ if (validate_obsredux_preset_files(failed, sizeof(failed)))
 
 ### Predefined Config Installation
 
-**Source**: `UI/data/obsredux-defaults/obs-studio/`  
+**Source**: `UI/data/obspt-defaults/obs-studio/`  
 **Destination**: `${OBS_DATA_DESTINATION}/../` (Install Root sibling)
 
 **CMakeLists.txt Pattern**:
 ```cmake
-install(DIRECTORY data/obsredux-defaults/
+install(DIRECTORY data/obspt-defaults/
         DESTINATION ${OBS_DATA_DESTINATION}/../
         FILES_MATCHING PATTERN "*")
 ```
@@ -269,7 +289,7 @@ install(DIRECTORY data/obsredux-defaults/
 
 ### Scene Collection JSON Contract
 
-OBSRedux default scene collections must use the same shape that `OBSBasic::LoadData()` writes and reads:
+OBS-PT default scene collections must use the same shape that `OBSBasic::LoadData()` writes and reads:
 
 - Top-level global audio devices, e.g. `DesktopAudioDevice1`, are loaded by `LoadAudioDevice()`.
 - Top-level `sources[]` contains the scene source (`id: "scene"`) and child sources (`game_capture`, `monitor_capture`, etc.).
@@ -277,7 +297,7 @@ OBSRedux default scene collections must use the same shape that `OBSBasic::LoadD
 - `settings.items[]` is stored bottom-to-top; later items render later and appear higher in the UI source list.
 - Do not add microphone/Aux devices to the shipped PotPvP default unless the product requirement explicitly changes.
 
-For the PotPvP preset, `DesktopAudioDevice1` should be a `wasapi_output_capture` source with `settings.device_id = "default"`. The `PotPvP` scene should contain `Display` below `Minecraft`, which means the JSON item order is `Display` first, then `Minecraft`.
+For the PotPvP preset, `DesktopAudioDevice1` should be a `wasapi_output_capture` source with `settings.device_id = "default"`. The `PotPvP` scene should contain `Display` below `Minecraft`, which means the JSON item order is `Display` first, then `Minecraft`. The shipped default keeps `Minecraft` (game capture) visible on top and `Display` (monitor capture, a fallback) below and hidden (`visible:false`); `Display.settings.method = 0` (auto/DXGI).
 
 #### Wrong
 ```json
@@ -310,7 +330,7 @@ For the PotPvP preset, `DesktopAudioDevice1` should be a `wasapi_output_capture`
       "name": "PotPvP",
       "settings": {
         "items": [
-          {"name": "Display", "visible": true},
+          {"name": "Display", "visible": false},
           {"name": "Minecraft", "visible": true}
         ]
       }
@@ -388,11 +408,11 @@ OBSBasic.StartRecording={"bindings":[{"key":"OBS_KEY_PAGEDOWN"}]}
 
 ### Mistake: Completing First Run Through a Separate Config Handle
 
-**Symptom**: Closing the OBSRedux first-run dialog enters the main window, but the next launch shows the dialog again.
+**Symptom**: Closing the OBS-PT first-run dialog enters the main window, but the next launch shows the dialog again.
 
 **Cause**: `mark_first_run_completed()` writes `FirstRunCompleted=true` through a separately opened `global.ini`, then `OBSApp::globalConfig` later saves its stale in-memory state and removes the marker.
 
-**Fix**: Set `OBSRedux.FirstRunCompleted=true` and `OBSRedux.BootstrapVersion=<current>` on the active `GetGlobalConfig()` handle, then save that handle.
+**Fix**: Set `OBS-PT.FirstRunCompleted=true` and `OBS-PT.BootstrapVersion=<current>` on the active `GetGlobalConfig()` handle, then save that handle.
 
 ---
 
@@ -410,7 +430,7 @@ OBSBasic.StartRecording={"bindings":[{"key":"OBS_KEY_PAGEDOWN"}]}
 
 ### Integration Test (Pending S7)
 
-**M4 Bootstrap**: Construct empty User Data Root → trigger M4 → verify `recordEncoder.json::encoder` rewritten, `basic.ini::RecFilePath` rewritten to absolute path, `global.ini::[OBSRedux] FirstRunCompleted=true` written.
+**M4 Bootstrap**: Construct empty User Data Root → trigger M4 → verify `recordEncoder.json::encoder` rewritten, `basic.ini::RecFilePath` rewritten to absolute path, `global.ini::[OBSPT] FirstRunCompleted=true` written.
 
 ---
 

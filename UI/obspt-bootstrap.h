@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define OBSREDUX_BOOTSTRAP_VERSION 2
+#define OBSPT_BOOTSTRAP_VERSION 3
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,11 +44,11 @@ int sweep_retention(const char *dir, int retention_days, const char *glob,
 		    const sweep_deps_t *deps);
 
 bool is_first_run(void);
-bool validate_obsredux_preset_files(char *failed_path,
+bool validate_obspt_preset_files(char *failed_path,
 				    size_t failed_path_size);
-void prepare_obsredux_global_config(config_t *global_config);
+void prepare_obspt_global_config(config_t *global_config);
 int apply_encoder_to_profile(const char *profile_name,
-			      const char *encoder_id);
+			      const char *encoder_id, int cqp);
 void apply_record_path_to_config(config_t *cfg, const char *abs_path);
 int apply_record_path_to_profile(const char *profile_name,
 				  const char *abs_path);
@@ -60,7 +60,7 @@ void mark_first_run_completed(void);
 void ShowWritePermissionFailureDialog(write_probe_result_t reason);
 void ShowPresetIntegrityFailureDialog(const char *failed_path);
 void ShowFirstRunRecommendationsDialog(bool is_software_encoder);
-bool run_obsredux_early_bootstrap(config_t *global_config);
+bool run_obspt_early_bootstrap(config_t *global_config);
 void run_first_run_bootstrap_if_needed(const char *active_profile_name,
 				       config_t *active_config);
 #endif

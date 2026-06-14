@@ -1,7 +1,7 @@
 {
   "encoder": "jim_nvenc",
   "rate_control": "CQP",
-  "cqp": 25,
+  "cqp": 26,
   "preset": "hp",
   "preset2": "p1",
   "profile": "high",

@@ -76,7 +76,7 @@
        <item>
         <widget class="QLabel" name="name">
          <property name="text">
-          <string notr="true">OBSRedux</string>
+          <string notr="true">OBS-PT</string>
          </property>
         </widget>
        </item>

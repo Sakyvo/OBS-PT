@@ -230,7 +230,7 @@ set(obs_SOURCES
 	${obs_libffutil_SOURCES}
 	../deps/json11/json11.cpp
 	obs-app.cpp
-	obsredux-bootstrap.cpp
+	obspt-bootstrap.cpp
 	window-dock.cpp
 	api-interface.cpp
 	window-basic-main.cpp
@@ -306,7 +306,7 @@ set(obs_HEADERS
 	${obs_libffutil_HEADERS}
 	../deps/json11/json11.hpp
 	obs-app.hpp
-	obsredux-bootstrap.h
+	obspt-bootstrap.h
 	platform.hpp
 	window-dock.hpp
 	window-main.hpp
@@ -453,7 +453,7 @@ if(WIN32)
 
 	set_target_properties(obs
 		PROPERTIES
-			OUTPUT_NAME "obs${_output_suffix}")
+			OUTPUT_NAME "OBS-PT")
 
 	if(Qt5Widgets_VERSION VERSION_LESS 6.0.0)
 		target_link_libraries(obs
@@ -481,7 +481,7 @@ install_obs_core(obs)
 install_obs_data(obs data obs-studio)
 install_obs_data_file(obs ../AUTHORS obs-studio/authors)
 
-install(DIRECTORY data/obsredux-defaults/
+install(DIRECTORY data/obspt-defaults/
 	DESTINATION ${OBS_DATA_DESTINATION}/../
 	FILES_MATCHING PATTERN "*")
 

@@ -69,7 +69,7 @@
 #include "ui-validation.hpp"
 #include "media-controls.hpp"
 #include "undo-stack-obs.hpp"
-#include "obsredux-bootstrap.h"
+#include "obspt-bootstrap.h"
 #include <fstream>
 #include <sstream>
 
@@ -314,7 +314,7 @@ OBSBasic::OBSBasic(QWidget *parent)
 	installEventFilter(shortcutFilter);
 
 	stringstream name;
-	name << "OBSRedux " << App()->GetVersionString();
+	name << "OBS-PT " << App()->GetVersionString();
 	blog(LOG_INFO, "%s", name.str().c_str());
 	blog(LOG_INFO, "---------------------------------");
 
@@ -3642,7 +3642,7 @@ void trigger_sparkle_update();
 
 void OBSBasic::TimedCheckForUpdates()
 {
-	/* OBSRedux will use its own update channel later. */
+	/* OBS-PT will use its own update channel later. */
 }
 
 void OBSBasic::CheckForUpdates(bool manualUpdate)
@@ -8606,7 +8606,7 @@ void OBSBasic::UpdateTitleBar()
 	const char *sceneCollection = config_get_string(
 		App()->GlobalConfig(), "Basic", "SceneCollection");
 
-	name << "OBSRedux " << App()->GetVersionString();
+	name << "OBS-PT " << App()->GetVersionString();
 
 	name << " - " << Str("TitleBar.Profile") << ": " << profile;
 	name << " - " << Str("TitleBar.Scenes") << ": " << sceneCollection;
@@ -8912,7 +8912,7 @@ void OBSBasic::SystemTrayInit()
 #endif
 	trayIcon.reset(new QSystemTrayIcon(
 		QIcon::fromTheme("obs-tray", trayIconFile), this));
-	trayIcon->setToolTip("OBSRedux");
+	trayIcon->setToolTip("OBS-PT");
 
 	showHide = new QAction(QTStr("Basic.SystemTray.Show"), trayIcon.data());
 	sysTrayStream = new QAction(
@@ -9004,7 +9004,7 @@ void OBSBasic::SysTrayNotify(const QString &text,
 	    QSystemTrayIcon::supportsMessages()) {
 		QSystemTrayIcon::MessageIcon icon =
 			QSystemTrayIcon::MessageIcon(n);
-		trayIcon->showMessage("OBSRedux", text, icon, 10000);
+		trayIcon->showMessage("OBS-PT", text, icon, 10000);
 	}
 }
 

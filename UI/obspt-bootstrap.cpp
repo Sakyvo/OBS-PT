@@ -1,4 +1,4 @@
-#include "obsredux-bootstrap.h"
+#include "obspt-bootstrap.h"
 #include "obs-app.hpp"
 
 #include <obs.h>
@@ -11,8 +11,10 @@
 
 #include <QApplication>
 #include <QDesktopServices>
+#include <QGuiApplication>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScreen>
 #include <QString>
 #include <QUrl>
 
@@ -142,8 +144,8 @@ void ShowWritePermissionFailureDialog(write_probe_result_t reason)
 {
 	(void)reason;
 	QMessageBox::critical(nullptr,
-			      QTStr("OBSRedux.WriteProbeFailure.Title"),
-			      QTStr("OBSRedux.WriteProbeFailure.Body"),
+			      QTStr("OBSPT.WriteProbeFailure.Title"),
+			      QTStr("OBSPT.WriteProbeFailure.Body"),
 			      QMessageBox::Ok);
 }
 
@@ -241,7 +243,7 @@ static bool validate_preset_files(char *failed_path,
 	return true;
 }
 
-bool validate_obsredux_preset_files(char *failed_path,
+bool validate_obspt_preset_files(char *failed_path,
 				    size_t failed_path_size)
 {
 	return validate_preset_files(failed_path, failed_path_size);
@@ -249,18 +251,18 @@ bool validate_obsredux_preset_files(char *failed_path,
 
 void ShowPresetIntegrityFailureDialog(const char *failed_path)
 {
-	QString body = QTStr("OBSRedux.PresetFailure.Body")
+	QString body = QTStr("OBSPT.PresetFailure.Body")
 			       .arg(QString::fromUtf8(failed_path ? failed_path
 								   : ""));
 
 	QMessageBox mb(QMessageBox::Critical,
-		       QTStr("OBSRedux.PresetFailure.Title"), body,
+		       QTStr("OBSPT.PresetFailure.Title"), body,
 		       QMessageBox::NoButton, nullptr);
 	QPushButton *openButton = mb.addButton(
-		QTStr("OBSRedux.PresetFailure.OpenInstallRoot"),
+		QTStr("OBSPT.PresetFailure.OpenInstallRoot"),
 		QMessageBox::ActionRole);
 	QPushButton *exitButton = mb.addButton(
-		QTStr("OBSRedux.PresetFailure.Exit"),
+		QTStr("OBSPT.PresetFailure.Exit"),
 		QMessageBox::RejectRole);
 	mb.setDefaultButton(exitButton);
 
@@ -274,18 +276,18 @@ void ShowPresetIntegrityFailureDialog(const char *failed_path)
 	}
 }
 
-void prepare_obsredux_global_config(config_t *global_config)
+void prepare_obspt_global_config(config_t *global_config)
 {
 	if (!global_config)
 		return;
 
 	bool first_run_completed =
-		config_get_bool(global_config, "OBSRedux", "FirstRunCompleted");
+		config_get_bool(global_config, "OBSPT", "FirstRunCompleted");
 	int bootstrap_version =
-		(int)config_get_int(global_config, "OBSRedux", "BootstrapVersion");
+		(int)config_get_int(global_config, "OBSPT", "BootstrapVersion");
 	bool needs_repair =
 		!first_run_completed ||
-		bootstrap_version < OBSREDUX_BOOTSTRAP_VERSION;
+		bootstrap_version < OBSPT_BOOTSTRAP_VERSION;
 
 	g_late_bootstrap_needed = needs_repair;
 	g_show_first_run_dialog = !first_run_completed;
@@ -321,7 +323,48 @@ void prepare_obsredux_global_config(config_t *global_config)
 	}
 }
 
-bool run_obsredux_early_bootstrap(config_t *global_config)
+static void apply_monitor_video_to_profile(const char *profile_name)
+{
+	QScreen *screen = QGuiApplication::primaryScreen();
+	if (!screen)
+		return;
+
+	qreal dpr = screen->devicePixelRatio();
+	uint32_t cx = (uint32_t)(screen->size().width() * dpr);
+	uint32_t cy = (uint32_t)(screen->size().height() * dpr);
+	if (cx < 8 || cy < 8)
+		return;
+
+	char rel_path[512];
+	snprintf(rel_path, sizeof(rel_path),
+		 "obs-studio/basic/profiles/%s/basic.ini", profile_name);
+	char ini_path[512];
+	get_portable_path(ini_path, sizeof(ini_path), rel_path);
+
+	config_t *cfg = nullptr;
+	if (config_open(&cfg, ini_path, CONFIG_OPEN_EXISTING) !=
+	    CONFIG_SUCCESS) {
+		blog(LOG_WARNING, "[OBS-PT] basic.ini not found: %s",
+		     ini_path);
+		return;
+	}
+
+	config_set_uint(cfg, "Video", "BaseCX", cx);
+	config_set_uint(cfg, "Video", "BaseCY", cy);
+	config_set_uint(cfg, "Video", "OutputCX", cx);
+	config_set_uint(cfg, "Video", "OutputCY", cy);
+	config_set_uint(cfg, "Video", "FPSType", 2);
+	config_set_uint(cfg, "Video", "FPSNum", 480);
+	config_set_uint(cfg, "Video", "FPSDen", 1);
+	config_save_safe(cfg, "tmp", nullptr);
+	config_close(cfg);
+
+	blog(LOG_INFO,
+	     "[OBS-PT] applied monitor video to %s: %ux%u @480fps",
+	     profile_name, cx, cy);
+}
+
+bool run_obspt_early_bootstrap(config_t *global_config)
 {
 	char failed_path[512] = {0};
 
@@ -339,9 +382,12 @@ bool run_obsredux_early_bootstrap(config_t *global_config)
 		return false;
 	}
 
+	if (g_late_bootstrap_needed)
+		apply_monitor_video_to_profile(POTPVP_PROFILE);
+
 	if (global_config && g_bootstrap_version_pending) {
-		config_set_int(global_config, "OBSRedux", "BootstrapVersion",
-			       OBSREDUX_BOOTSTRAP_VERSION);
+		config_set_int(global_config, "OBSPT", "BootstrapVersion",
+			       OBSPT_BOOTSTRAP_VERSION);
 		if (config_save_safe(global_config, "tmp", nullptr) ==
 		    CONFIG_SUCCESS)
 			g_bootstrap_version_pending = false;
@@ -504,7 +550,7 @@ bool is_first_run(void)
 	if (config_open(&cfg, path, CONFIG_OPEN_EXISTING) != CONFIG_SUCCESS)
 		return true;
 	bool completed =
-		config_get_bool(cfg, "OBSRedux", "FirstRunCompleted");
+		config_get_bool(cfg, "OBSPT", "FirstRunCompleted");
 	config_close(cfg);
 	return !completed;
 }
@@ -518,7 +564,8 @@ void apply_record_path_to_config(config_t *cfg, const char *abs_path)
 	config_set_string(cfg, "SimpleOutput", "FilePath", abs_path);
 }
 
-int apply_encoder_to_profile(const char *profile_name, const char *encoder_id)
+int apply_encoder_to_profile(const char *profile_name, const char *encoder_id,
+			     int cqp)
 {
 	char rel_path[512];
 	snprintf(rel_path, sizeof(rel_path),
@@ -527,16 +574,62 @@ int apply_encoder_to_profile(const char *profile_name, const char *encoder_id)
 	char abs_path[512];
 	get_portable_path(abs_path, sizeof(abs_path), rel_path);
 
-	obs_data_t *root = obs_data_create_from_json_file(abs_path);
-	if (!root) {
-		blog(LOG_WARNING,
-		     "[OBSRedux] recordEncoder.json not found or invalid: %s",
-		     abs_path);
-		return -1;
-	}
+	obs_data_t *root = obs_data_create();
 	obs_data_set_string(root, "encoder", encoder_id);
+
+	if (strcmp(encoder_id, "obs_qsv11") == 0) {
+		obs_data_set_string(root, "rate_control", "CQP");
+		obs_data_set_int(root, "qpi", cqp);
+		obs_data_set_int(root, "qpp", cqp);
+		obs_data_set_int(root, "qpb", cqp);
+		obs_data_set_string(root, "target_usage", "quality");
+		obs_data_set_string(root, "profile", "high");
+		obs_data_set_int(root, "keyint_sec", 2);
+		obs_data_set_int(root, "bframes", 3);
+		obs_data_set_string(root, "latency", "normal");
+	} else if (strcmp(encoder_id, "amd_amf_h264") == 0) {
+		obs_data_set_int(root, "Usage", 0);
+		obs_data_set_int(root, "Profile", 100);
+		obs_data_set_int(root, "RateControlMethod", 0);
+		obs_data_set_int(root, "QP.IFrame", cqp);
+		obs_data_set_int(root, "QP.PFrame", cqp);
+		obs_data_set_int(root, "QP.BFrame", cqp);
+		obs_data_set_int(root, "VBVBuffer", 1);
+		obs_data_set_int(root, "VBVBuffer.Size", 100000);
+		obs_data_set_double(root, "KeyframeInterval", 2.0);
+		obs_data_set_int(root, "BFrame.Pattern", 0);
+	} else if (strcmp(encoder_id, "obs_x264") == 0) {
+		obs_data_set_string(root, "rate_control", "CRF");
+		obs_data_set_int(root, "crf", cqp);
+		obs_data_set_string(root, "preset", "veryfast");
+		obs_data_set_string(root, "profile", "high");
+		obs_data_set_string(root, "tune", "");
+		obs_data_set_int(root, "keyint_sec", 2);
+		obs_data_set_string(root, "x264opts", "");
+	} else if (strcmp(encoder_id, "ffmpeg_nvenc") == 0) {
+		obs_data_set_string(root, "rate_control", "CQP");
+		obs_data_set_int(root, "cqp", cqp);
+		obs_data_set_string(root, "preset", "hq");
+		obs_data_set_string(root, "profile", "high");
+	} else {
+		/* jim_nvenc (default) */
+		obs_data_set_string(root, "rate_control", "CQP");
+		obs_data_set_int(root, "cqp", cqp);
+		obs_data_set_string(root, "preset", "hp");
+		obs_data_set_string(root, "preset2", "p1");
+		obs_data_set_string(root, "profile", "high");
+		obs_data_set_string(root, "tune", "ll");
+		obs_data_set_string(root, "multipass", "disabled");
+		obs_data_set_int(root, "bf", 0);
+		obs_data_set_bool(root, "psycho_aq", false);
+	}
+
 	bool ok = obs_data_save_json(root, abs_path);
 	obs_data_release(root);
+	if (!ok)
+		blog(LOG_WARNING,
+		     "[OBS-PT] failed to write recordEncoder.json: %s",
+		     abs_path);
 	return ok ? 0 : -1;
 }
 
@@ -551,7 +644,7 @@ int apply_record_path_to_profile(const char *profile_name,
 
 	config_t *cfg = nullptr;
 	if (config_open(&cfg, ini_path, CONFIG_OPEN_EXISTING) != CONFIG_SUCCESS) {
-		blog(LOG_WARNING, "[OBSRedux] basic.ini not found: %s",
+		blog(LOG_WARNING, "[OBS-PT] basic.ini not found: %s",
 		     ini_path);
 		return -1;
 	}
@@ -565,10 +658,10 @@ void mark_first_run_completed(void)
 {
 	config_t *global_config = qApp ? GetGlobalConfig() : nullptr;
 	if (global_config) {
-		config_set_bool(global_config, "OBSRedux", "FirstRunCompleted",
+		config_set_bool(global_config, "OBSPT", "FirstRunCompleted",
 				true);
-		config_set_int(global_config, "OBSRedux", "BootstrapVersion",
-			       OBSREDUX_BOOTSTRAP_VERSION);
+		config_set_int(global_config, "OBSPT", "BootstrapVersion",
+			       OBSPT_BOOTSTRAP_VERSION);
 		config_save_safe(global_config, "tmp", nullptr);
 		return;
 	}
@@ -578,9 +671,9 @@ void mark_first_run_completed(void)
 	config_t *cfg = nullptr;
 	if (config_open(&cfg, path, CONFIG_OPEN_ALWAYS) != CONFIG_SUCCESS)
 		return;
-	config_set_bool(cfg, "OBSRedux", "FirstRunCompleted", true);
-	config_set_int(cfg, "OBSRedux", "BootstrapVersion",
-		       OBSREDUX_BOOTSTRAP_VERSION);
+	config_set_bool(cfg, "OBSPT", "FirstRunCompleted", true);
+	config_set_int(cfg, "OBSPT", "BootstrapVersion",
+		       OBSPT_BOOTSTRAP_VERSION);
 	config_save_safe(cfg, "tmp", nullptr);
 	config_close(cfg);
 }
@@ -589,13 +682,13 @@ void ShowFirstRunRecommendationsDialog(bool is_software_encoder)
 {
 	char recordings_path[512];
 	get_portable_path(recordings_path, sizeof(recordings_path), "recordings");
-	QString body = QTStr("OBSRedux.FirstRun.Body")
+	QString body = QTStr("OBSPT.FirstRun.Body")
 			       .arg(QString::fromUtf8(recordings_path));
 	if (is_software_encoder)
 		body += "\n\n" +
-			QTStr("OBSRedux.FirstRun.SoftwareEncoderWarning");
-	QMessageBox::information(nullptr, QTStr("OBSRedux.FirstRun.Title"),
-				 body, QTStr("OBSRedux.FirstRun.Start"));
+			QTStr("OBSPT.FirstRun.SoftwareEncoderWarning");
+	QMessageBox::information(nullptr, QTStr("OBSPT.FirstRun.Title"),
+				 body, QTStr("OBSPT.FirstRun.Start"));
 }
 
 void run_first_run_bootstrap_if_needed(const char *active_profile_name,
@@ -609,7 +702,12 @@ void run_first_run_bootstrap_if_needed(const char *active_profile_name,
 		active_profile_name = POTPVP_PROFILE;
 
 	encoder_probe_result_t enc = probe_record_encoder();
-	apply_encoder_to_profile(active_profile_name, enc.encoder_id);
+	int base_cy = active_config
+			      ? (int)config_get_uint(active_config, "Video",
+						     "BaseCY")
+			      : 0;
+	int cqp = (base_cy > 0 && base_cy < 1080) ? 20 : 26;
+	apply_encoder_to_profile(active_profile_name, enc.encoder_id, cqp);
 
 	char recordings_path[512];
 	get_portable_path(recordings_path, sizeof(recordings_path), "recordings");

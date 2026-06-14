@@ -1,0 +1,9 @@
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/prd.md", "reason": "本任务需求/AC/范围与 ADR-lite 决策（CQP 语义、全厂商模板、NV12、按分辨率 CQP 20/26、版本号 bump）。所有实施动作的最终依据。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/design.md", "reason": "技术契约：早/晚两相位与 ResetVideo 时序事实（行号锚点）、apply_monitor_video_to_profile 新签名、apply_encoder_to_profile 改签名、5 个编码器精确键表、repair 门控。遇边界先查本文件。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/implement.md", "reason": "有序执行清单（Step 0-7）、每步文件/行锚点、构建部署命令、回滚点。逐步照做。"}
+{"file": ".trellis/spec/obspt-bootstrap.md", "reason": "现有引导契约（早/晚相位、首启 vs version-bump repair、Profile 改写仅动指定字段的旧不变量）。本任务扩展它——须先读懂现状再改，且实施后须更新此 spec。"}
+{"file": "docs/adr/0002-positioning-obs-for-potpvp.md", "reason": "记录了默认值原始决策：CQP 25 + NVENC p1 + tune=ll + bf=0 + 360fps。本任务演进它（360→480、静态 CQP→按分辨率自适应 20/26、单编码器→全厂商）；实施时须知原始理由，jim_nvenc 模板的 preset/tune/bf 仍沿用本 ADR。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/research/encoder-qsv.md", "reason": "obs_qsv11 CQP 模板权威来源：rate_control=CQP + qpi/qpp/qpb(1-51)，target_usage/profile/keyint_sec/bframes/latency 取值，均引用 obs-qsv11.c 行号。写 QSV 分支照此。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/research/encoder-x264.md", "reason": "obs_x264 CRF 模板权威来源：rate_control=CRF + crf(0-51)，CQP→CRF 1:1，须丢弃全部 NVENC 键，tune 留空。写 x264 分支照此。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/research/encoder-amf.md", "reason": "amd_amf_h264 CQP 模板权威来源：RateControlMethod=0 + QP.IFrame/PFrame/BFrame，bare 键非 dotted，与 UpdateRecordingSettings_amd_cqp 一致。写 AMF 分支照此（前瞻，enc-amf 子模块为空）。"}
+{"file": "CONTEXT.md", "reason": "项目术语统一来源（Install Root / User Data Root / Profile / Portable Mode / Fractional FPS）。避免日志/文案/注释用错词。"}
