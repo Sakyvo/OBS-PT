@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
-- **Last Active**: 2026-06-04
+- **Total Sessions**: 4
+- **Last Active**: 2026-06-17
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~110 | Active |
+| `journal-1.md` | ~191 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-06-17 | Welcome dialog: multi-page first-run wizard + About entry | `ca51e3e` | `master` |
 | 3 | 2026-06-04 | Fix OBSRedux all-black render (MSVC /O2 vec4 union miscompile) | `cb469b2` | `master` |
 | 2 | 2026-05-29 | Fix OBSRedux PotPvP preset | `fa4f582`, `acccf0d` | `master` |
 | 1 | 2026-05-27 | OBSRedux S8 bootstrap acceptance | `e8bf887` | `master` |
