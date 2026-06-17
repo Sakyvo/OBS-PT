@@ -70,6 +70,7 @@
 #include "media-controls.hpp"
 #include "undo-stack-obs.hpp"
 #include "obspt-bootstrap.h"
+#include "window-basic-welcome.hpp"
 #include <fstream>
 #include <sstream>
 
@@ -1783,7 +1784,13 @@ void OBSBasic::OBSInit()
 		App()->GlobalConfig(), "Basic", "Profile");
 	if (!profile_name || !*profile_name)
 		profile_name = "PotPvP";
-	run_first_run_bootstrap_if_needed(profile_name, basicConfig);
+	bool firstRunSoftware = false;
+	if (run_first_run_bootstrap_if_needed(profile_name, basicConfig,
+					      &firstRunSoftware)) {
+		OBSWelcome *welcome = new OBSWelcome(this, firstRunSoftware);
+		welcome->setAttribute(Qt::WA_DeleteOnClose, true);
+		welcome->show();
+	}
 
 #ifdef BROWSER_AVAILABLE
 	cef = obs_browser_init_panel();

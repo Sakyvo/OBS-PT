@@ -59,8 +59,8 @@ void mark_first_run_completed(void);
 
 void ShowWritePermissionFailureDialog(write_probe_result_t reason);
 void ShowPresetIntegrityFailureDialog(const char *failed_path);
-void ShowFirstRunRecommendationsDialog(bool is_software_encoder);
 bool run_obspt_early_bootstrap(config_t *global_config);
-void run_first_run_bootstrap_if_needed(const char *active_profile_name,
-				       config_t *active_config);
+bool run_first_run_bootstrap_if_needed(const char *active_profile_name,
+				       config_t *active_config,
+				       bool *out_is_software);
 #endif

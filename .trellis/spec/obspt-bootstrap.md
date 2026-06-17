@@ -158,8 +158,9 @@ OBS-PT owns upstream first-run state. This bootstrap spans Global Config, preset
 ```cpp
 void prepare_obspt_global_config(config_t *global_config);
 bool run_obspt_early_bootstrap(config_t *global_config);
-void run_first_run_bootstrap_if_needed(const char *active_profile_name,
-                                       config_t *active_config);
+bool run_first_run_bootstrap_if_needed(const char *active_profile_name,
+                                       config_t *active_config,
+                                       bool *out_is_software);
 
 // Hardware-adaptive defaults (bootstrap v3)
 static void apply_monitor_video_to_profile(const char *profile_name); // early, repair-gated
@@ -192,8 +193,8 @@ int apply_encoder_to_profile(const char *profile_name,
 - Runs inside `OBSBasic::OBSInit()` after `obs_post_load_modules()`.
 - Receives the already opened `basicConfig` as `active_config`.
 - Probes encoders, then writes a **COMPLETE per-encoder** `recordEncoder.json` via `apply_encoder_to_profile(profile, encoder_id, cqp)` — builds a **fresh `obs_data`** (NOT load-and-mutate), so no encoder-mismatched keys ever survive an encoder switch. CQP/CRF/QP is set by resolution: `BaseCY < 1080 → 20`, else `26` (read from `active_config`). Also writes absolute `<Install Root>/recordings` to both `[AdvOut] RecFilePath` and `[SimpleOutput] FilePath`.
-- Shows the first-run dialog only when `[OBSPT] FirstRunCompleted` is missing/false.
-- Writes `[OBSPT] FirstRunCompleted=true` to the active `OBSApp::globalConfig` after the dialog closes, then saves it. Do not write this marker only through a separate `config_open()` handle; later shutdown saves can overwrite that file with the in-memory Global Config.
+- Returns `true` when a first-run/repair pass ran (caller should show the welcome) and sets `*out_is_software` from the probe. It no longer shows a dialog itself — the QMessageBox `ShowFirstRunRecommendationsDialog` was removed; `window-basic-main.cpp` now shows the multi-page `OBSWelcome` wizard (`window-basic-welcome.{hpp,cpp}` + `forms/OBSWelcome.ui`), also reopenable from the About dialog's "About" link. See `.trellis/tasks/06-15-welcome-dialog/`.
+- Writes `[OBSPT] FirstRunCompleted=true` to the active `OBSApp::globalConfig` via `mark_first_run_completed()` during the pass, then saves it. Do not write this marker only through a separate `config_open()` handle; later shutdown saves can overwrite that file with the in-memory Global Config.
 
 **Per-encoder `recordEncoder.json` templates** (NV12 / 8-bit; `cqp` = 20 or 26 by resolution). A blind id-swap that leaves NVENC keys on QSV/x264/AMF is a defect:
 

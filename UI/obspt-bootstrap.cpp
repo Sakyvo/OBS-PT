@@ -678,25 +678,16 @@ void mark_first_run_completed(void)
 	config_close(cfg);
 }
 
-void ShowFirstRunRecommendationsDialog(bool is_software_encoder)
-{
-	char recordings_path[512];
-	get_portable_path(recordings_path, sizeof(recordings_path), "recordings");
-	QString body = QTStr("OBSPT.FirstRun.Body")
-			       .arg(QString::fromUtf8(recordings_path));
-	if (is_software_encoder)
-		body += "\n\n" +
-			QTStr("OBSPT.FirstRun.SoftwareEncoderWarning");
-	QMessageBox::information(nullptr, QTStr("OBSPT.FirstRun.Title"),
-				 body, QTStr("OBSPT.FirstRun.Start"));
-}
-
-void run_first_run_bootstrap_if_needed(const char *active_profile_name,
-				       config_t *active_config)
+bool run_first_run_bootstrap_if_needed(const char *active_profile_name,
+				       config_t *active_config,
+				       bool *out_is_software)
 {
 	bool first_run = is_first_run();
-	if (!first_run && !g_late_bootstrap_needed)
-		return;
+	if (!first_run && !g_late_bootstrap_needed) {
+		if (out_is_software)
+			*out_is_software = false;
+		return false;
+	}
 
 	if (!active_profile_name || !*active_profile_name)
 		active_profile_name = POTPVP_PROFILE;
@@ -716,10 +707,13 @@ void run_first_run_bootstrap_if_needed(const char *active_profile_name,
 	if (active_config)
 		config_save_safe(active_config, "tmp", nullptr);
 
-	if (first_run || g_show_first_run_dialog)
-		ShowFirstRunRecommendationsDialog(enc.is_software_fallback);
+	bool show_welcome = first_run || g_show_first_run_dialog;
 
 	mark_first_run_completed();
 	g_late_bootstrap_needed = false;
 	g_show_first_run_dialog = false;
+
+	if (out_is_software)
+		*out_is_software = enc.is_software_fallback;
+	return show_welcome;
 }

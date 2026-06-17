@@ -256,6 +256,7 @@ set(obs_SOURCES
 	window-basic-transform.cpp
 	window-basic-preview.cpp
 	window-basic-about.cpp
+	window-basic-welcome.cpp
 	window-importer.cpp
 	media-controls.cpp
 	window-namedialog.cpp
@@ -320,6 +321,7 @@ set(obs_HEADERS
 	window-basic-main-outputs.hpp
 	window-basic-source-select.hpp
 	window-basic-about.hpp
+	window-basic-welcome.hpp
 	window-basic-status-bar.hpp
 	window-basic-adv-audio.hpp
 	window-basic-transform.hpp
@@ -415,7 +417,8 @@ set(obs_UI
 	forms/OBSRemux.ui
 	forms/OBSImporter.ui
 	forms/OBSMissingFiles.ui
-	forms/OBSAbout.ui)
+	forms/OBSAbout.ui
+	forms/OBSWelcome.ui)
 
 set(obs_QRC
 	forms/obs.qrc)
