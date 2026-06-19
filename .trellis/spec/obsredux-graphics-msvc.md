@@ -98,5 +98,31 @@ rendering is black; debugging chases the capture source plugins fruitlessly.
 
 ### Correct
 Wrap the affected math TUs in `#ifdef _MSC_VER` `#pragma optimize("", off/on)`.
-Longer term, consider building with a stable MSVC toolset that does not exhibit
-the miscompile, or a global libobs build-config guard — tracked as a follow-up.
+**Resolved (2026-06-19, task 06-17): build with VS2022 Build Tools v143** — see
+Toolchain below.
+
+## Toolchain — build with v143, not VS 18 2026 (2026-06-19)
+
+**Requirement**: build OBS-PT with the **VS2022 Build Tools v143** toolset
+(`K:/Microsoft Visual Studio/2022/BuildTools`, MSVC **14.44.35207**) via the
+`Visual Studio 17 2022` generator — NOT `Visual Studio 18 2026`. v143 matches the
+shipped `deps2019` / `Qt 5.15.2 msvc2019` (v142↔v143 ABI-compatible) and does not
+exhibit the vec4/vec3 miscompile. (ATL is absent from the BuildTools, so
+`obs-qsv11` + `frontend-tools` don't build — irrelevant to NVENC recording; add
+the `VC.ATL` component if those are wanted.)
+
+**Measured impact** (same RTX 3060, same PotPvP scene, 1080p/480fps, jim_nvenc
+CQP26), VS 18 2026 → v143:
+- encoder-skipped frames (encoding lag): **4.1–4.7% → 0.8–1.2%** (~4×)
+- rendering-lag frames: **~1.5% → ~0.4–0.8%** (~2–3×)
+
+VS 18 2026 generated heavier/stalling code across the whole libobs pipeline, not
+only the matrix TUs. Keep the `matrix4.c`/`matrix3.c` pragma guards as defensive
+(harmless on v143).
+
+**Not a toolchain bug**: the *visible* "long frame freeze" first chased as an
+encoding-overload regression (task 06-17) was **window capture failing to
+continuously capture Minecraft 1.7.10** (only the first frame, then static) —
+present in stock OBS too, not the fork's code, not fixable by modifying OBS →
+won't-fix. Game capture is the correct path; its frame drops are normal. The
+toolchain lag reduction above is a separate, real win.
