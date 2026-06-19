@@ -189,3 +189,37 @@ Added OBSWelcome (5-page QStackedWidget wizard): first-run auto-show (replacing 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Session 6: encoding-overload diagnosis -> v143 toolchain
+
+**Date**: 2026-06-19
+**Task**: Session 6: encoding-overload diagnosis -> v143 toolchain
+**Package**: plugins/win-dshow/libdshowcapture
+**Branch**: `master`
+
+### Summary
+
+480fps 'encoding overload' diagnosed: NOT a fork bug. Clean same-workload A/B (RTX3060, window-capture MC, 480fps) showed VS2022 v143 build cuts pipeline lag ~4x vs VS18 2026 (encoding 4.1-4.7%->0.8-1.2%, rendering ~1.5%->~0.6%); rebuilt+deployed OBS-PT on v143 (deps2019/Qt-msvc2019, BUILD_VST=OFF). Visible frame-freeze was window capture failing to capture Minecraft 1.7.10 (stock-OBS limitation, won't-fix); game capture is the correct path. Spec obsredux-graphics-msvc.md updated. Install dir renamed OBS-Redux->OBS-PT.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3fec0cd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
