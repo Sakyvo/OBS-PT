@@ -8,8 +8,8 @@
 ## Steps
 1. **Config sync (R1)**: diff live vs `UI/data/obspt-defaults/obs-studio/`; apply
    real diffs only (exclude `RecFilePath`/`FilePath`/`CookieId`/global state).
-   Confirm shipped scene = game_capture. Done: Minecraft window default updated
-   to Lunar Client 1.8.9; CQP encoder defaults cleaned.
+   Confirm shipped scene = game_capture. Done: Minecraft window default kept on
+   Lunar Client 1.7.10; CQP encoder defaults cleaned.
 2. **Version (R2)**: reconfigure with bundled cmake
    `... -B build-v143 ... -DOBS_VERSION_OVERRIDE=0.0.1-alpha` (+ existing flags).
 3. **Build (R3)**: `cmake --build build-v143 --config RelWithDebInfo --parallel`.
