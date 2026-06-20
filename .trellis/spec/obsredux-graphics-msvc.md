@@ -111,6 +111,23 @@ exhibit the vec4/vec3 miscompile. (ATL is absent from the BuildTools, so
 `obs-qsv11` + `frontend-tools` don't build — irrelevant to NVENC recording; add
 the `VC.ATL` component if those are wanted.)
 
+Use the VS2022 BuildTools-bundled CMake 3.x for this tree:
+
+```powershell
+& "K:\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" `
+  -S . -B build-v143 -G "Visual Studio 17 2022" -A x64 `
+  -D "DepsPath:PATH=K:/Projects/dev/OBS-PT/deps2019/win64" `
+  -D "QTDIR:PATH=C:/Qt/5.15.2/msvc2019_64" `
+  -D "OBS_VERSION_OVERRIDE:STRING=0.0.1-alpha"
+```
+
+Do not use the system `C:\Program Files\CMake\bin\cmake.exe` 4.x here; legacy
+bundled dependency CMake files still declare `cmake_minimum_required(<3.5)`, and
+CMake 4 rejects them. In PowerShell, pass dotted/hyphenated cache values as a
+quoted typed `-D` argument (`"OBS_VERSION_OVERRIDE:STRING=0.0.1-alpha"`). An
+unquoted `-DOBS_VERSION_OVERRIDE=0.0.1-alpha` can be split so CMake sees the value
+as `0` and treats `.0.1-alpha` as an extra path.
+
 **Measured impact** (same RTX 3060, same PotPvP scene, 1080p/480fps, jim_nvenc
 CQP26), VS 18 2026 → v143:
 - encoder-skipped frames (encoding lag): **4.1–4.7% → 0.8–1.2%** (~4×)

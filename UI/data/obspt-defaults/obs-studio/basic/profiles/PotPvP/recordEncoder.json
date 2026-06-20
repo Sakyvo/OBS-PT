@@ -8,6 +8,5 @@
   "tune": "ll",
   "multipass": "disabled",
   "bf": 0,
-  "psycho_aq": false,
-  "bitrate": 30000
+  "psycho_aq": false
 }
