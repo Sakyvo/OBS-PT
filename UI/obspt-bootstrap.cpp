@@ -615,11 +615,8 @@ int apply_encoder_to_profile(const char *profile_name, const char *encoder_id,
 		/* jim_nvenc (default) */
 		obs_data_set_string(root, "rate_control", "CQP");
 		obs_data_set_int(root, "cqp", cqp);
-		obs_data_set_string(root, "preset", "hp");
-		obs_data_set_string(root, "preset2", "p1");
+		obs_data_set_string(root, "preset", "hq");
 		obs_data_set_string(root, "profile", "high");
-		obs_data_set_string(root, "tune", "ll");
-		obs_data_set_string(root, "multipass", "disabled");
 		obs_data_set_int(root, "bf", 0);
 		obs_data_set_bool(root, "psycho_aq", false);
 	}

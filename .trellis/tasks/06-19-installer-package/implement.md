@@ -10,6 +10,15 @@
    real diffs only (exclude `RecFilePath`/`FilePath`/`CookieId`/global state).
    Confirm shipped scene = game_capture. Done: Minecraft window default kept on
    Lunar Client 1.7.10; CQP encoder defaults cleaned.
+   - 2026-06-20 smoke blocker fix: on Windows 11 + NVIDIA driver `610.47`,
+     `jim_nvenc` failed at `nvEncGetEncodePresetConfig` with
+     `NV_ENC_ERR_UNSUPPORTED_PARAM` when using shipped `preset:"hp"`. Stock OBS
+     27.2.4 works on the same machine, and OBS simple-output NVENC writes
+     `preset:"hq"`. Use compatibility-first `preset:"hq"` for `jim_nvenc` in
+     both shipped `recordEncoder.json` and `apply_encoder_to_profile()`, and do
+     not write `preset2`/`tune`/`multipass` because this encoder does not read
+     them. Rebuild `OBS-PT.exe`; staging JSON-only replacement is insufficient
+     because first-run/repair can rewrite the profile from bootstrap.
 2. **Version (R2)**: reconfigure with bundled cmake
    `... -B build-v143 ... -DOBS_VERSION_OVERRIDE=0.0.1-alpha` (+ existing flags).
 3. **Build (R3)**: `cmake --build build-v143 --config RelWithDebInfo --parallel`.
@@ -30,6 +39,12 @@
 - Silent install smoke test with `/D=<repo>/build-v143/_pkg/_smoke/OBS-PT`
   installed key files, wrote HKCU uninstall metadata, and silent uninstall removed
   the install dir, registry key, desktop shortcut, and Start Menu shortcuts.
+- 2026-06-21 rerun after NVENC compatibility fix: rebuilt `OBS-PT.exe`,
+  regenerated `OBS-PT-0.0.1-alpha-Installer.exe`, silently installed to
+  workspace `_smoke/OBS-PT`, verified installed `recordEncoder.json` uses
+  `preset:"hq"` without `preset2`/`tune`/`multipass` and PotPvP game capture
+  targets Lunar Client 1.7.10, then silently uninstalled and restored the
+  pre-existing `D:\OBS-PT` HKCU uninstall entry/shortcuts.
 - Remaining manual user smoke: interactive default install path, launch, About/log
   display string, record OK.
 

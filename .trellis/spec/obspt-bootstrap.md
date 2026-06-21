@@ -2,7 +2,7 @@
 
 **Status**: Active  
 **Owner**: OBS-PT Core  
-**Last Updated**: 2026-06-14 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand)
+**Last Updated**: 2026-06-20 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; `jim_nvenc` compatibility preset)
 
 ## Overview
 
@@ -200,7 +200,7 @@ int apply_encoder_to_profile(const char *profile_name,
 
 | encoder_id | keys |
 |---|---|
-| `jim_nvenc` (default) | `rate_control:"CQP"`, `cqp`, `preset:"hp"`, `preset2:"p1"`, `profile:"high"`, `tune:"ll"`, `multipass:"disabled"`, `bf:0`, `psycho_aq:false` |
+| `jim_nvenc` (default) | `rate_control:"CQP"`, `cqp`, `preset:"hq"`, `profile:"high"`, `bf:0`, `psycho_aq:false`. Do not write `preset2`, `tune`, or `multipass`: this encoder only reads the legacy `preset` field, and `hq` matches OBS simple-output NVENC while avoiding `nvEncGetEncodePresetConfig` failures seen with `hp` on NVIDIA driver 610.47. |
 | `ffmpeg_nvenc` | `rate_control:"CQP"`, `cqp`, `preset:"hq"`, `profile:"high"` |
 | `obs_qsv11` | `rate_control:"CQP"`, `qpi=qpp=qpb=cqp`, `target_usage:"quality"`, `profile:"high"`, `keyint_sec:2`, `bframes:3`, `latency:"normal"` |
 | `amd_amf_h264` | `Usage:0`, `Profile:100`, `RateControlMethod:0`, `QP.IFrame=QP.PFrame=QP.BFrame=cqp`, `VBVBuffer:1`, `VBVBuffer.Size:100000`, `KeyframeInterval:2.0`, `BFrame.Pattern:0` (forward-looking; enc-amf submodule empty) |
@@ -345,6 +345,44 @@ For the PotPvP preset, `DesktopAudioDevice1` should be a `wasapi_output_capture`
 ---
 
 ## 5. Common Mistakes
+
+### Mistake: Updating Shipped Encoder JSON Only
+
+**Symptom**: Fresh installs appear fixed, but first-run/repair users still get the
+old encoder settings after OBS-PT bootstraps the profile.
+
+**Cause**: `UI/data/obspt-defaults/.../recordEncoder.json` is only the shipped
+seed. `run_first_run_bootstrap_if_needed()` calls `apply_encoder_to_profile()`,
+which writes a fresh per-encoder `recordEncoder.json` during first-run/repair.
+
+**Fix**: Keep the shipped JSON and `apply_encoder_to_profile()` templates in
+lockstep. For `jim_nvenc`, both must use compatibility-first `preset:"hq"` and
+must not write `preset2`, `tune`, or `multipass`.
+
+#### Wrong
+```json
+{
+  "encoder": "jim_nvenc",
+  "preset": "hq"
+}
+```
+
+```cpp
+obs_data_set_string(root, "preset", "hp");
+obs_data_set_string(root, "preset2", "p1");
+```
+
+#### Correct
+```json
+{
+  "encoder": "jim_nvenc",
+  "preset": "hq"
+}
+```
+
+```cpp
+obs_data_set_string(root, "preset", "hq");
+```
 
 ### Mistake: Using `strcat` for Path Construction
 

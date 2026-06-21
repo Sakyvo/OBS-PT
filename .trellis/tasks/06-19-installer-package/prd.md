@@ -24,6 +24,14 @@ bundling the v143 build + the current default config, versioned `0.0.1-alpha`.
   heavy release installer (Program Files, registry, VC++ redist, admin,
   OBSInstallerUtils dep); its own header says forks should write their own →
   reference only.
+- **New smoke blocker — NVENC preset compatibility**: on another Windows 11
+  machine with NVIDIA driver `610.47`, recording fails with
+  `nvEncGetEncodePresetConfig failed: 12 (NV_ENC_ERR_UNSUPPORTED_PARAM)`.
+  User reports stock OBS 27.2.4 has no issue on that machine; newer NVIDIA
+  drivers avoid the OBS-PT error but hurt game FPS. Local evidence: `jim_nvenc`
+  only reads the legacy `preset` field and maps `hp` to
+  `NV_ENC_PRESET_HP_GUID`; `preset2:"p1"`, `tune:"ll"`, and `multipass` are not
+  read by this encoder. OBS simple-output NVENC writes `preset:"hq"`.
 
 ## Decision (ADR-lite)
 
@@ -67,5 +75,9 @@ installer UI.
   (preserves the hardware-adaptive design for non-NVIDIA users).
 - **Config sync** = current live scene is already game_capture (safe); sync real
   diffs only, exclude machine paths / `CookieId` / transient state.
+- **NVENC compatibility default** = prioritize recordability on old/problem
+  NVIDIA drivers over the aggressive low-latency preset: shipped and bootstrap
+  `jim_nvenc` templates use `preset:"hq"` and do not write `preset2`, `tune`, or
+  `multipass`, because this encoder only reads legacy `preset`.
 
 See `design.md` + `implement.md`.
