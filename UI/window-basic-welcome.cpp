@@ -74,7 +74,7 @@ void OBSWelcome::updateNav()
 
 	if (i >= last) {
 		ui->nextBtn->setText(QTStr("OBSPT.Welcome.End"));
-		ui->nextBtn->setEnabled(false);
+		ui->nextBtn->setEnabled(true);
 	} else {
 		ui->nextBtn->setText(QTStr("OBSPT.Welcome.Next"));
 		ui->nextBtn->setEnabled(true);
@@ -92,7 +92,11 @@ void OBSWelcome::prev()
 void OBSWelcome::next()
 {
 	int i = ui->pages->currentIndex();
-	if (i < ui->pages->count() - 1)
-		ui->pages->setCurrentIndex(i + 1);
+	if (i >= ui->pages->count() - 1) {
+		accept();
+		return;
+	}
+
+	ui->pages->setCurrentIndex(i + 1);
 	updateNav();
 }

@@ -1787,9 +1787,16 @@ void OBSBasic::OBSInit()
 	bool firstRunSoftware = false;
 	if (run_first_run_bootstrap_if_needed(profile_name, basicConfig,
 					      &firstRunSoftware)) {
-		OBSWelcome *welcome = new OBSWelcome(this, firstRunSoftware);
-		welcome->setAttribute(Qt::WA_DeleteOnClose, true);
-		welcome->show();
+		QTimer::singleShot(0, this, [this, firstRunSoftware] {
+			OBSWelcome *welcome =
+				new OBSWelcome(this, firstRunSoftware);
+			welcome->setAttribute(Qt::WA_DeleteOnClose, true);
+			connect(welcome, &QDialog::finished, this,
+				[](int) { mark_first_run_completed(); });
+			welcome->show();
+			welcome->raise();
+			welcome->activateWindow();
+		});
 	}
 
 #ifdef BROWSER_AVAILABLE

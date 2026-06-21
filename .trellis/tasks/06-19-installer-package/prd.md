@@ -38,6 +38,11 @@ bundling the v143 build + the current default config, versioned `0.0.1-alpha`.
   NSIS must force overwrite packaged defaults on top of an existing portable
   tree; otherwise newer runtime `global.ini`/profile files can survive and skip
   the first-run welcome.
+- **New smoke blocker — first-run welcome timing**: OBS-PT marked
+  `[OBSPT] FirstRunCompleted=true` during late bootstrap before the welcome
+  dialog was actually shown; the welcome's final-page "End" button was also
+  disabled. If the dialog failed to activate, later launches skipped it
+  permanently.
 
 ## Decision (ADR-lite)
 
@@ -90,5 +95,12 @@ installer UI.
 - **Installer overwrite/launch** = `SetOverwrite on` before copying the staging
   tree; OBS launch paths (Finish page + OBS shortcuts) start in
   `$INSTDIR\bin\64bit`.
+- **Current GUI layout** = sync only the GUI layout sections from the current
+  `D:\OBS-PT\obs-studio\global.ini` (`[BasicWindow]`, `[ScriptLogWindow]`) into
+  the shipped `global.ini`; keep fresh first-run state by excluding `[OBSPT]`,
+  runtime version flags, paths, logs, and profiler data.
+- **First-run completion marker** = late bootstrap only requests the welcome.
+  `FirstRunCompleted=true` is written after the `OBSWelcome` dialog finishes,
+  so a missed/failed dialog display retries on the next launch.
 
 See `design.md` + `implement.md`.

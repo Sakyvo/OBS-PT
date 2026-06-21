@@ -5,13 +5,16 @@ config-sync → version bump → complete v143 rebuild (with ATL) → assemble s
 tree → NSIS package.
 
 ## 1. Config sync (R1)
-Diff live `K:/Projects/finished/OBS-PT/obs-studio/` vs shipped
+Diff live `D:/OBS-PT/obs-studio/` vs shipped
 `UI/data/obspt-defaults/obs-studio/`; apply real differences only. Current scene
 is already `game_capture`(Minecraft) + `monitor_capture`(Display, hidden) + 桌面音频
 — safe (not the broken window-capture state). EXCLUDE machine-specifics:
 `RecFilePath`/`FilePath` (bootstrap rewrites `<Install Root>/recordings` at
 first-run), `CookieId`, global.ini transient state. Keep: 1080p base=output /
-480fps / NV12 / 709 / Partial / jim_nvenc / CQP-by-resolution.
+480fps / NV12 / 709 / Partial / jim_nvenc / CQP-by-resolution. For the latest
+GUI layout request, sync only `global.ini` `[BasicWindow]` and
+`[ScriptLogWindow]`; do not ship `[OBSPT]`, profiler data, backups, or runtime
+version flags.
 
 ## 2. Version (R2)
 Reconfigure build-v143 with `-DOBS_VERSION_OVERRIDE=0.0.1-alpha`. Safe: `CMakeLists
@@ -48,6 +51,14 @@ Portable is hardcoded (`obs-app.cpp:81`) → no marker file needed.
 - Uninstall: remove `$INSTDIR` + shortcuts + HKCU entry.
 - `OutFile "OBS-PT-0.0.1-alpha-Installer.exe"`; icon = OBS/OBS-PT `.ico`.
 - Build: `makensis UI/installer/obspt-setup.nsi`.
+
+## 6. First-run welcome timing
+`run_first_run_bootstrap_if_needed()` applies encoder/output-path defaults and
+returns whether `OBSWelcome` should be shown. It must not write
+`FirstRunCompleted=true` before the dialog is visible. `OBSBasic::OBSInit()`
+posts welcome creation with `QTimer::singleShot(0, ...)`, raises/activates it,
+and connects the dialog `finished` signal to `mark_first_run_completed()`. The
+welcome final page keeps its End button enabled and calls `accept()`.
 
 ## Risks / rollback
 - Drive enum MUST be `DRIVE_FIXED` only (skip removable/network) → never default to

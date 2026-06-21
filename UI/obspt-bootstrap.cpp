@@ -706,7 +706,6 @@ bool run_first_run_bootstrap_if_needed(const char *active_profile_name,
 
 	bool show_welcome = first_run || g_show_first_run_dialog;
 
-	mark_first_run_completed();
 	g_late_bootstrap_needed = false;
 	g_show_first_run_dialog = false;
 

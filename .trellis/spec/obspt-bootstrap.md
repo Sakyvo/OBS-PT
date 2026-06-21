@@ -194,7 +194,14 @@ int apply_encoder_to_profile(const char *profile_name,
 - Receives the already opened `basicConfig` as `active_config`.
 - Probes encoders, then writes a **COMPLETE per-encoder** `recordEncoder.json` via `apply_encoder_to_profile(profile, encoder_id, cqp)` — builds a **fresh `obs_data`** (NOT load-and-mutate), so no encoder-mismatched keys ever survive an encoder switch. CQP/CRF/QP is set by resolution: `BaseCY < 1080 → 20`, else `26` (read from `active_config`). Also writes absolute `<Install Root>/recordings` to both `[AdvOut] RecFilePath` and `[SimpleOutput] FilePath`.
 - Returns `true` when a first-run/repair pass ran (caller should show the welcome) and sets `*out_is_software` from the probe. It no longer shows a dialog itself — the QMessageBox `ShowFirstRunRecommendationsDialog` was removed; `window-basic-main.cpp` now shows the multi-page `OBSWelcome` wizard (`window-basic-welcome.{hpp,cpp}` + `forms/OBSWelcome.ui`), also reopenable from the About dialog's "About" link. See `.trellis/tasks/06-15-welcome-dialog/`.
-- Writes `[OBSPT] FirstRunCompleted=true` to the active `OBSApp::globalConfig` via `mark_first_run_completed()` during the pass, then saves it. Do not write this marker only through a separate `config_open()` handle; later shutdown saves can overwrite that file with the in-memory Global Config.
+- Does not write `[OBSPT] FirstRunCompleted=true` itself. It returns `true`
+  when the caller must show `OBSWelcome`; `window-basic-main.cpp` connects the
+  dialog's `finished` signal to `mark_first_run_completed()`, then saves the
+  active `OBSApp::globalConfig`. Do not write this marker only through a separate
+  `config_open()` handle; later shutdown saves can overwrite that file with the
+  in-memory Global Config. Also do not write it before the welcome dialog is
+  actually shown, or an activation/display failure can permanently skip the
+  first-run dialog.
 
 **Per-encoder `recordEncoder.json` templates** (NV12 / 8-bit; `cqp` = 20 or 26 by resolution). A blind id-swap that leaves NVENC keys on QSV/x264/AMF is a defect:
 
@@ -233,7 +240,9 @@ OBS treats CQP/CRF/QP as one 0–51 quality scale (`window-basic-main-outputs.cp
 - Missing `recordEncoder.json`: launch once and assert the fatal window title appears and the missing file is not recreated.
 - Stale `BootstrapVersion` with valid presets: assert PotPvP startup index, upstream gates, and current `BootstrapVersion`.
 - Stale `BootstrapVersion` with a missing required preset: assert process exits and `BootstrapVersion` remains stale.
-- Fresh first run: assert late bootstrap writes `FirstRunCompleted=true` only after the first-run dialog closes and that the marker remains after shutdown.
+- Fresh first run: assert late bootstrap requests the first-run dialog without
+  writing `FirstRunCompleted=true`; closing the dialog writes the marker and the
+  marker remains after shutdown.
 
 ### 7. Wrong vs Correct
 
@@ -515,7 +524,11 @@ OBSBasic.StartRecording={"bindings":[{"key":"OBS_KEY_PAGEDOWN"}]}
 
 ### Integration Test (Pending S7)
 
-**M4 Bootstrap**: Construct empty User Data Root → trigger M4 → verify `recordEncoder.json::encoder` rewritten, `basic.ini::RecFilePath` rewritten to absolute path, `global.ini::[OBSPT] FirstRunCompleted=true` written.
+**M4 Bootstrap**: Construct empty User Data Root → trigger M4 → verify
+`recordEncoder.json::encoder` rewritten, `basic.ini::RecFilePath` rewritten to
+absolute path, the welcome dialog is requested, and
+`global.ini::[OBSPT] FirstRunCompleted=true` is written only after the welcome
+dialog finishes.
 
 ---
 

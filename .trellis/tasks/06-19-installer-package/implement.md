@@ -10,6 +10,11 @@
    real diffs only (exclude `RecFilePath`/`FilePath`/`CookieId`/global state).
    Confirm shipped scene = game_capture. Done: Minecraft window default kept on
    Lunar Client 1.7.10; CQP encoder defaults cleaned.
+   - 2026-06-21 GUI layout refresh: sync only `[BasicWindow]` and
+     `[ScriptLogWindow]` from current `D:\OBS-PT\obs-studio\global.ini` into the
+     shipped `global.ini`. Do not sync `[OBSPT] FirstRunCompleted`,
+     `BootstrapVersion`, profiler data, scene `.bak`, runtime paths, or
+     `CookieId`.
    - 2026-06-20 smoke blocker investigation: on Windows 11 + NVIDIA driver `610.47`,
      `jim_nvenc` failed at `nvEncGetEncodePresetConfig` with
      `NV_ENC_ERR_UNSUPPORTED_PARAM` when using shipped `preset:"hp"`. Stock OBS
@@ -29,7 +34,12 @@
 5. **NSIS script**: write `UI/installer/obspt-setup.nsi` (per design.md §5).
 6. **Build installer**: `makensis UI/installer/obspt-setup.nsi` →
    `OBS-PT-0.0.1-alpha-Installer.exe`.
-7. **Smoke test (user)**: run installer (accept default path) → no admin prompt →
+7. **First-run welcome fix**: late bootstrap no longer marks
+   `FirstRunCompleted` before showing the dialog; the main window schedules the
+   welcome on the next Qt event-loop turn, raises/activates it, and marks first
+   run complete on dialog finish. The welcome final-page End button accepts the
+   dialog.
+8. **Smoke test (user)**: run installer (accept default path) → no admin prompt →
    installs to `<first non-C drive>/OBS-PT` → launch → About/log = `0.0.1-alpha`
    → first-run bootstraps default scene → record OK → run uninstaller.
 
@@ -54,6 +64,19 @@
   Desktop OBS shortcuts have working directory `<install>/bin/64bit`, then
   silently uninstalled and restored the pre-existing `D:\OBS-PT` HKCU
   uninstall entry/shortcuts.
+- 2026-06-21 rerun after GUI/welcome fix: shipped `global.ini` includes the
+  current `D:\OBS-PT` `[BasicWindow]` and `[ScriptLogWindow]` layout sections
+  only. Fresh first-run no longer writes `[OBSPT] FirstRunCompleted=true` during
+  late bootstrap; it is written only after `OBSWelcome` finishes.
+- 2026-06-21 final package smoke after GUI/welcome fix: rebuilt
+  `OBS-PT.exe`, recopied it plus shipped defaults into `build-v143/_pkg/OBS-PT`,
+  regenerated `OBS-PT-0.0.1-alpha-Installer.exe`, then silently installed to
+  workspace `_smoke/OBS-PT`. Verified installed `global.ini` has `[BasicWindow]`
+  and `[ScriptLogWindow]` but no `[OBSPT]`, `recordEncoder.json` stays
+  `jim_nvenc` `preset:"hp"` without `preset2`/`tune`/`multipass`, and PotPvP
+  captures Lunar Client 1.7.10, not 1.8.9. Silent uninstall removed the smoke
+  install dir and HKCU uninstall key; pre-existing `D:\OBS-PT` uninstall
+  metadata/shortcuts were restored.
 - Remaining manual user smoke: interactive default install path, launch, About/log
   display string, record OK.
 
