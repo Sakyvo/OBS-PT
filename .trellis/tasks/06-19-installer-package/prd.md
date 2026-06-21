@@ -81,10 +81,12 @@ installer UI.
   (preserves the hardware-adaptive design for non-NVIDIA users).
 - **Config sync** = current live scene is already game_capture (safe); sync real
   diffs only, exclude machine paths / `CookieId` / transient state.
-- **NVENC compatibility default** = prioritize recordability on old/problem
-  NVIDIA drivers over the aggressive low-latency preset: shipped and bootstrap
-  `jim_nvenc` templates use `preset:"hq"` and do not write `preset2`, `tune`, or
-  `multipass`, because this encoder only reads legacy `preset`.
+- **NVENC max-performance default** = user-selected default is the zh-CN
+  "最大性能" preset, which maps to legacy `preset:"hp"` for `jim_nvenc`. Shipped
+  and bootstrap templates still do not write `preset2`, `tune`, or `multipass`,
+  because this encoder only reads legacy `preset`. The NVIDIA `610.47`
+  `NV_ENC_ERR_UNSUPPORTED_PARAM` report remains a known compatibility risk for
+  smoke testing.
 - **Installer overwrite/launch** = `SetOverwrite on` before copying the staging
   tree; OBS launch paths (Finish page + OBS shortcuts) start in
   `$INSTDIR\bin\64bit`.

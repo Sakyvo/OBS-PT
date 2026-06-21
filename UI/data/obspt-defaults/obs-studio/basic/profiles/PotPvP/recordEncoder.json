@@ -2,7 +2,7 @@
   "encoder": "jim_nvenc",
   "rate_control": "CQP",
   "cqp": 26,
-  "preset": "hq",
+  "preset": "hp",
   "profile": "high",
   "bf": 0,
   "psycho_aq": false
