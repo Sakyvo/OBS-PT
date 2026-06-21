@@ -39,9 +39,12 @@ Portable is hardcoded (`obs-app.cpp:81`) → no marker file needed.
   `C:`. Append `\OBS-PT`.
 - Pages: Welcome → **Directory (pre-filled default, user-overridable)** → Install
   → Finish (run OBS-PT.exe).
-- Install: recurse-pack `<staging>` → `$INSTDIR`; Start Menu (`$SMPROGRAMS\OBS-PT`)
-  + Desktop shortcuts → `bin\64bit\OBS-PT.exe`; write uninstaller + HKCU entry
+- Install: `SetOverwrite on`, then recurse-pack `<staging>` → `$INSTDIR`; Start
+  Menu (`$SMPROGRAMS\OBS-PT`) + Desktop shortcuts → `bin\64bit\OBS-PT.exe` with
+  working directory `$INSTDIR\bin\64bit`; write uninstaller + HKCU entry
   `Software\Microsoft\Windows\CurrentVersion\Uninstall\OBS-PT`.
+- Finish-page launch uses a custom `LaunchOBS` function that sets
+  `$OUTDIR/$cwd` to `$INSTDIR\bin\64bit` before executing `OBS-PT.exe`.
 - Uninstall: remove `$INSTDIR` + shortcuts + HKCU entry.
 - `OutFile "OBS-PT-0.0.1-alpha-Installer.exe"`; icon = OBS/OBS-PT `.ico`.
 - Build: `makensis UI/installer/obspt-setup.nsi`.

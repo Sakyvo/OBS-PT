@@ -32,6 +32,12 @@ bundling the v143 build + the current default config, versioned `0.0.1-alpha`.
   only reads the legacy `preset` field and maps `hp` to
   `NV_ENC_PRESET_HP_GUID`; `preset2:"p1"`, `tune:"ll"`, and `multipass` are not
   read by this encoder. OBS simple-output NVENC writes `preset:"hq"`.
+- **New smoke blockers — installer launch/overwrite**: when Finish-page
+  "Launch OBS-PT" runs the exe directly from the installer process, OBS can fail
+  video initialization even though manually launching `OBS-PT.exe` works. Also,
+  NSIS must force overwrite packaged defaults on top of an existing portable
+  tree; otherwise newer runtime `global.ini`/profile files can survive and skip
+  the first-run welcome.
 
 ## Decision (ADR-lite)
 
@@ -79,5 +85,8 @@ installer UI.
   NVIDIA drivers over the aggressive low-latency preset: shipped and bootstrap
   `jim_nvenc` templates use `preset:"hq"` and do not write `preset2`, `tune`, or
   `multipass`, because this encoder only reads legacy `preset`.
+- **Installer overwrite/launch** = `SetOverwrite on` before copying the staging
+  tree; OBS launch paths (Finish page + OBS shortcuts) start in
+  `$INSTDIR\bin\64bit`.
 
 See `design.md` + `implement.md`.

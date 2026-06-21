@@ -45,6 +45,14 @@
   `preset:"hq"` without `preset2`/`tune`/`multipass` and PotPvP game capture
   targets Lunar Client 1.7.10, then silently uninstalled and restored the
   pre-existing `D:\OBS-PT` HKCU uninstall entry/shortcuts.
+- 2026-06-21 rerun after installer launch/overwrite fix: regenerated installer,
+  pre-seeded a smoke install dir with newer `global.ini` containing
+  `FirstRunCompleted=true` and newer `recordEncoder.json` using `preset:"hp"`;
+  silent install overwrote both back to fresh defaults (`global.ini` has no
+  `[OBSPT]`, `recordEncoder.json` uses `preset:"hq"`). Verified Start Menu and
+  Desktop OBS shortcuts have working directory `<install>/bin/64bit`, then
+  silently uninstalled and restored the pre-existing `D:\OBS-PT` HKCU
+  uninstall entry/shortcuts.
 - Remaining manual user smoke: interactive default install path, launch, About/log
   display string, record OK.
 

@@ -27,8 +27,9 @@ SetCompressor /SOLID lzma
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_BITMAP "OBSHeader.bmp"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "OBSBanner.bmp"
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${EXE_PATH}"
+!define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "Launch OBS-PT"
+!define MUI_FINISHPAGE_RUN_FUNCTION "LaunchOBS"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -70,7 +71,13 @@ Function .onInit
 	${EndIf}
 FunctionEnd
 
+Function LaunchOBS
+	SetOutPath "$INSTDIR\bin\64bit"
+	Exec '"$INSTDIR\${EXE_PATH}"'
+FunctionEnd
+
 Section "OBS-PT" SecMain
+	SetOverwrite on
 	SetOutPath "$INSTDIR"
 	File /r "${SOURCE_DIR}\*.*"
 
@@ -78,9 +85,11 @@ Section "OBS-PT" SecMain
 	WriteUninstaller "$INSTDIR\uninstall.exe"
 
 	CreateDirectory "$SMPROGRAMS\OBS-PT"
+	SetOutPath "$INSTDIR\bin\64bit"
 	CreateShortCut "$SMPROGRAMS\OBS-PT\OBS-PT.lnk" "$INSTDIR\${EXE_PATH}" "" "$INSTDIR\${EXE_PATH}" 0
-	CreateShortCut "$SMPROGRAMS\OBS-PT\Uninstall OBS-PT.lnk" "$INSTDIR\uninstall.exe"
 	CreateShortCut "$DESKTOP\OBS-PT.lnk" "$INSTDIR\${EXE_PATH}" "" "$INSTDIR\${EXE_PATH}" 0
+	SetOutPath "$INSTDIR"
+	CreateShortCut "$SMPROGRAMS\OBS-PT\Uninstall OBS-PT.lnk" "$INSTDIR\uninstall.exe"
 
 	WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "OBS-PT"
 	WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${APP_VERSION}"

@@ -2,7 +2,7 @@
 
 **Status**: Active  
 **Owner**: OBS-PT Core  
-**Last Updated**: 2026-06-20 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; `jim_nvenc` compatibility preset)
+**Last Updated**: 2026-06-21 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; installer overwrite/launch contract)
 
 ## Overview
 
@@ -287,6 +287,52 @@ install(DIRECTORY data/obspt-defaults/
 ### Why `/../` Works
 
 `${OBS_DATA_DESTINATION}` typically resolves to `<Install Root>/data/obs-studio`. Appending `/../` navigates up to Install Root, allowing direct placement of `obs-studio/` directory structure.
+
+### NSIS Installer Contract
+
+The packaged `obs-studio/` tree is the canonical fresh default for the alpha
+installer. `UI/installer/obspt-setup.nsi` must force-copy the staging tree with
+`SetOverwrite on`; NSIS's default overwrite behavior can leave newer runtime
+files such as `obs-studio/global.ini` and profile JSON in place during an
+in-place reinstall, which preserves `[OBSPT] FirstRunCompleted=true` and skips
+the welcome flow.
+
+OBS launch entries must start in `<Install Root>/bin/64bit`:
+
+- Finish-page launch: use `MUI_FINISHPAGE_RUN_FUNCTION`, call `SetOutPath
+  "$INSTDIR\bin\64bit"`, then `Exec '"$INSTDIR\bin\64bit\OBS-PT.exe"'`.
+- Start Menu/Desktop OBS shortcuts: create them while `$OUTDIR` is
+  `$INSTDIR\bin\64bit`, so the shortcut working directory is the exe directory.
+
+#### Wrong
+```nsi
+!define MUI_FINISHPAGE_RUN "$INSTDIR\bin\64bit\OBS-PT.exe"
+
+Section "OBS-PT" SecMain
+  SetOutPath "$INSTDIR"
+  File /r "${SOURCE_DIR}\*.*"
+  CreateShortCut "$DESKTOP\OBS-PT.lnk" "$INSTDIR\bin\64bit\OBS-PT.exe"
+SectionEnd
+```
+
+#### Correct
+```nsi
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_FUNCTION "LaunchOBS"
+
+Function LaunchOBS
+  SetOutPath "$INSTDIR\bin\64bit"
+  Exec '"$INSTDIR\bin\64bit\OBS-PT.exe"'
+FunctionEnd
+
+Section "OBS-PT" SecMain
+  SetOverwrite on
+  SetOutPath "$INSTDIR"
+  File /r "${SOURCE_DIR}\*.*"
+  SetOutPath "$INSTDIR\bin\64bit"
+  CreateShortCut "$DESKTOP\OBS-PT.lnk" "$INSTDIR\bin\64bit\OBS-PT.exe"
+SectionEnd
+```
 
 ### Scene Collection JSON Contract
 
