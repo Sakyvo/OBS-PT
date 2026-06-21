@@ -223,3 +223,37 @@ Added OBSWelcome (5-page QStackedWidget wizard): first-run auto-show (replacing 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Installer GUI defaults and welcome timing
+
+**Date**: 2026-06-21
+**Task**: Installer GUI defaults and welcome timing
+**Package**: plugins/win-dshow/libdshowcapture
+**Branch**: `master`
+
+### Summary
+
+Synced current OBS-PT GUI layout into shipped defaults, fixed first-run welcome completion timing, rebuilt and smoke-tested the alpha installer.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `085fd5c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

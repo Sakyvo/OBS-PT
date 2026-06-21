@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
-- **Last Active**: 2026-06-19
+- **Total Sessions**: 6
+- **Last Active**: 2026-06-21
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~225 | Active |
+| `journal-1.md` | ~259 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-06-21 | Installer GUI defaults and welcome timing | `085fd5c` | `master` |
 | 5 | 2026-06-19 | Session 6: encoding-overload diagnosis -> v143 toolchain | `3fec0cd` | `master` |
 | 4 | 2026-06-17 | Welcome dialog: multi-page first-run wizard + About entry | `ca51e3e` | `master` |
 | 3 | 2026-06-04 | Fix OBSRedux all-black render (MSVC /O2 vec4 union miscompile) | `cb469b2` | `master` |
