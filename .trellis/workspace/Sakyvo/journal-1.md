@@ -257,3 +257,37 @@ Synced current OBS-PT GUI layout into shipped defaults, fixed first-run welcome 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Update OBS-PT defaults to 1.0.0
+
+**Date**: 2026-06-26
+**Task**: Update OBS-PT defaults to 1.0.0
+**Package**: plugins/win-dshow/libdshowcapture
+**Branch**: `master`
+
+### Summary
+
+Updated OBS-PT default config and package version to 1.0.0, regenerated installer, verified silent install smoke, and archived modernize NVENC presets.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bdad718` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
