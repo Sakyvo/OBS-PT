@@ -678,8 +678,11 @@
     <property name="title">
      <string>Basic.MainMenu.Tools</string>
     </property>
-    <addaction name="autoConfigure"/>
-    <addaction name="separator"/>
+     <!-- OBS-PT disables upstream auto-config for now; keep the QAction
+          definition below for possible future reuse.
+     <addaction name="autoConfigure"/>
+     <addaction name="separator"/>
+     -->
    </widget>
    <widget class="QMenu" name="menuDocks">
     <property name="title">

@@ -1,9 +1,1 @@
-{
-  "encoder": "jim_nvenc",
-  "rate_control": "CQP",
-  "cqp": 26,
-  "preset": "hp",
-  "profile": "high",
-  "bf": 0,
-  "psycho_aq": false
-}
+{"bf":0,"cqp":26,"encoder":"jim_nvenc","multipass":"disabled","preset2":"p1","profile":"high","psycho_aq":false,"rate_control":"CQP","tune":"hq"}

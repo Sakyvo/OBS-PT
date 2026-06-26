@@ -2,7 +2,7 @@ Unicode true
 ManifestDPIAware true
 
 !define APP_NAME "OBS-PT"
-!define APP_VERSION "0.0.1-alpha"
+!define APP_VERSION "1.0.0"
 !define COMPANY_NAME "OBS-PT"
 !define INSTALLER_NAME "OBS-PT-${APP_VERSION}-Installer.exe"
 !define SOURCE_DIR "..\..\build-v143\_pkg\OBS-PT"

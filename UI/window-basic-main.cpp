@@ -2024,9 +2024,10 @@ void OBSBasic::OBSInit()
 		config_save_safe(App()->GlobalConfig(), "tmp", nullptr);
 	}
 
-	if (!first_run && !has_last_version && !Active())
-		QMetaObject::invokeMethod(this, "on_autoConfigure_triggered",
-					  Qt::QueuedConnection);
+	/* OBS-PT owns first-run setup through obspt-bootstrap and OBSWelcome.
+	 * Keep upstream auto-config code compiled for possible future reuse, but
+	 * do not launch it automatically. */
+	(void)has_last_version;
 
 	ToggleMixerLayout(config_get_bool(App()->GlobalConfig(), "BasicWindow",
 					  "VerticalVolControl"));
@@ -9439,10 +9440,14 @@ SourceTreeItem *OBSBasic::GetItemWidgetFromSceneItem(obs_sceneitem_t *sceneItem)
 
 void OBSBasic::on_autoConfigure_triggered()
 {
+#if 0
+	/* OBS-PT: disabled for now. The upstream wizard is kept in-tree because
+	 * it may be reused after its assumptions match OBS-PT defaults. */
 	AutoConfig test(this);
 	test.setModal(true);
 	test.show();
 	test.exec();
+#endif
 }
 
 void OBSBasic::on_stats_triggered()

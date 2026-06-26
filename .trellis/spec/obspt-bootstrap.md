@@ -2,7 +2,7 @@
 
 **Status**: Active  
 **Owner**: OBS-PT Core  
-**Last Updated**: 2026-06-21 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; `jim_nvenc` max-performance preset; installer overwrite/launch contract)
+**Last Updated**: 2026-06-23 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; current PotPvP default profile; new Profile seeding; installer overwrite/launch contract)
 
 ## Overview
 
@@ -207,8 +207,8 @@ int apply_encoder_to_profile(const char *profile_name,
 
 | encoder_id | keys |
 |---|---|
-| `jim_nvenc` (default) | `rate_control:"CQP"`, `cqp`, `preset:"hp"`, `profile:"high"`, `bf:0`, `psycho_aq:false`. `hp` is the zh-CN "最大性能" preset and is the user-selected default. Do not write `preset2`, `tune`, or `multipass`: this encoder only reads the legacy `preset` field. `nvEncGetEncodePresetConfig` failure on NVIDIA driver 610.47 remains a known smoke-test risk for this default. |
-| `ffmpeg_nvenc` | `rate_control:"CQP"`, `cqp`, `preset:"hq"`, `profile:"high"` |
+| `jim_nvenc` (default) | `rate_control:"CQP"`, `cqp`, `preset2:"p1"`, `tune:"hq"`, `multipass:"disabled"`, `profile:"high"`, `bf:0`, `psycho_aq:false`. Do not write legacy `preset` for fresh/bootstrap defaults; `jim_nvenc` now reads modern P1-P7 settings and uses `nvEncGetEncodePresetConfigEx`. Existing profiles with legacy `preset` and no `preset2` are migrated by the encoder path. |
+| `ffmpeg_nvenc` | `rate_control:"CQP"`, `cqp`, `preset2:"p1"`, `tune:"hq"`, `multipass:"disabled"`, `profile:"high"`, `bf:0`, `psycho_aq:false` |
 | `obs_qsv11` | `rate_control:"CQP"`, `qpi=qpp=qpb=cqp`, `target_usage:"quality"`, `profile:"high"`, `keyint_sec:2`, `bframes:3`, `latency:"normal"` |
 | `amd_amf_h264` | `Usage:0`, `Profile:100`, `RateControlMethod:0`, `QP.IFrame=QP.PFrame=QP.BFrame=cqp`, `VBVBuffer:1`, `VBVBuffer.Size:100000`, `KeyframeInterval:2.0`, `BFrame.Pattern:0` (forward-looking; enc-amf submodule empty) |
 | `obs_x264` | `rate_control:"CRF"`, `crf:cqp`, `preset:"veryfast"`, `profile:"high"`, `tune:""`, `keyint_sec:2`, `x264opts:""` (drop all NVENC keys; 480fps software is a correctness fallback, not performant) |
@@ -397,6 +397,31 @@ For the PotPvP preset, `DesktopAudioDevice1` should be a `wasapi_output_capture`
 }
 ```
 
+### New Profile Contract
+
+The upstream "Profile > New" flow must not create an empty official OBS-style
+Profile. OBS-PT clean Profile creation copies the existing `PotPvP` Profile
+template first, then rewrites only `[General] Name` for the requested Profile
+name. Duplicate Profile still copies the active Profile. The upstream
+auto-configuration wizard is disabled in OBS-PT (`ConfigOnNewProfile=false`,
+no Tools-menu action, no first-run auto-config launch) but remains compiled for
+future reuse.
+
+#### Wrong
+```cpp
+config.Open(newPath.c_str(), CONFIG_OPEN_ALWAYS);
+InitBasicConfigDefaults();
+AutoConfig wizard(this);
+wizard.exec();
+```
+
+#### Correct
+```cpp
+CopyProfile("PotPvP", newPath.c_str());
+config.Open(newPath.c_str(), CONFIG_OPEN_ALWAYS);
+config_set_string(config, "General", "Name", newName.c_str());
+```
+
 ---
 
 ## 5. Common Mistakes
@@ -411,32 +436,43 @@ seed. `run_first_run_bootstrap_if_needed()` calls `apply_encoder_to_profile()`,
 which writes a fresh per-encoder `recordEncoder.json` during first-run/repair.
 
 **Fix**: Keep the shipped JSON and `apply_encoder_to_profile()` templates in
-lockstep. For `jim_nvenc`, both must use the user-selected max-performance
-`preset:"hp"` and must not write `preset2`, `tune`, or `multipass`.
+lockstep. For `jim_nvenc`, both must write the current OBS-PT NVENC keys
+`preset2:"p1"`, `tune:"hq"`, and `multipass:"disabled"` and must not write a
+fresh legacy `preset`.
 
 #### Wrong
 ```json
 {
   "encoder": "jim_nvenc",
-  "preset": "hp"
+  "preset": "hp",
+  "bf": 0
 }
 ```
 
 ```cpp
 obs_data_set_string(root, "preset", "hq");
 obs_data_set_string(root, "preset2", "p1");
+obs_data_set_int(root, "bf", 0);
 ```
 
 #### Correct
 ```json
 {
   "encoder": "jim_nvenc",
-  "preset": "hp"
+  "preset2": "p1",
+  "tune": "hq",
+  "multipass": "disabled",
+  "bf": 0,
+  "psycho_aq": false
 }
 ```
 
 ```cpp
-obs_data_set_string(root, "preset", "hp");
+obs_data_set_string(root, "preset2", "p1");
+obs_data_set_string(root, "tune", "hq");
+obs_data_set_string(root, "multipass", "disabled");
+obs_data_set_int(root, "bf", 0);
+obs_data_set_bool(root, "psycho_aq", false);
 ```
 
 ### Mistake: Using `strcat` for Path Construction
