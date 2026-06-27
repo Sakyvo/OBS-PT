@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-06-26
+- **Total Sessions**: 8
+- **Last Active**: 2026-06-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~293 | Active |
+| `journal-1.md` | ~327 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-06-27 | Fix multitrack recording stop hang | `ab3609b` | `master` |
 | 7 | 2026-06-26 | Update OBS-PT defaults to 1.0.0 | `bdad718` | `master` |
 | 6 | 2026-06-21 | Installer GUI defaults and welcome timing | `085fd5c` | `master` |
 | 5 | 2026-06-19 | Session 6: encoding-overload diagnosis -> v143 toolchain | `3fec0cd` | `master` |

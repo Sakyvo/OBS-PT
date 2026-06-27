@@ -291,3 +291,37 @@ Updated OBS-PT default config and package version to 1.0.0, regenerated installe
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Fix multitrack recording stop hang
+
+**Date**: 2026-06-27
+**Task**: Fix multitrack recording stop hang
+**Package**: plugins/win-dshow/libdshowcapture
+**Branch**: `master`
+
+### Summary
+
+Fixed OBS-PT high-FPS multi-audio recording stop hang by widening libobs initial interleave sync to audio frame duration when multiple audio encoders are active, adding an obs-ffmpeg muxer force-stop fallback, validating multi-track and single-track recordings, refreshing the 1.0.0 installer, and documenting the runtime bugfix installer refresh rule.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ab3609b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
