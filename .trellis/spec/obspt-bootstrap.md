@@ -2,7 +2,7 @@
 
 **Status**: Active  
 **Owner**: OBS-PT Core  
-**Last Updated**: 2026-06-23 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; current PotPvP default profile; new Profile seeding; installer overwrite/launch contract)
+**Last Updated**: 2026-06-27 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; current PotPvP default profile; new Profile seeding; installer overwrite/launch contract; runtime bugfix installer refresh contract)
 
 ## Overview
 
@@ -313,6 +313,19 @@ OBS launch entries must start in `<Install Root>/bin/64bit`:
 - Start Menu/Desktop OBS shortcuts: create them while `$OUTDIR` is
   `$INSTDIR\bin\64bit`, so the shortcut working directory is the exe directory.
 
+Runtime bugfixes that require user install-and-retest must end with a refreshed
+installer, not only a hot-copy into `D:/OBS-PT`. After the relevant build and
+runtime smoke pass, refresh `build-v143/_pkg/OBS-PT/` from
+`build-v143/rundir/RelWithDebInfo/`, copy the shipped
+`UI/data/obspt-defaults/` tree into the staging root, then run:
+
+```powershell
+& "C:\Program Files (x86)\NSIS\makensis.exe" "UI\installer\obspt-setup.nsi"
+```
+
+Verify `build-v143/_pkg/OBS-PT-<version>-Installer.exe` has a new timestamp and
+that the staged files touched by the fix match the built `rundir` files.
+
 #### Wrong
 ```nsi
 !define MUI_FINISHPAGE_RUN "$INSTDIR\bin\64bit\OBS-PT.exe"
@@ -425,6 +438,41 @@ config_set_string(config, "General", "Name", newName.c_str());
 ---
 
 ## 5. Common Mistakes
+
+### Mistake: Using Video Frame Duration as the Only Multi-Track Interleave Sync Window
+
+**Symptom**: Advanced MP4 recording with multiple AAC tracks starts, but stopping
+recording never reaches `Output of file ... stopped` or `==== Recording Stop ====`;
+closing the window can leave the OBS-PT process alive.
+
+**Cause**: OBS-PT defaults to 480 fps (`FPSType=2`, `FPSNum=480`), so one video
+frame is about 2.08 ms. AAC encoder frames are much longer, and multiple audio
+encoders are often out of phase by more than one video frame. If
+`libobs/obs-output.c::prune_premature_packets()` uses only video frame duration
+as the initial sync threshold, the interleaver can fail to establish a stable
+start point or stop delivery for the muxer.
+
+**Fix**: When more than one audio encoder is active, compare the video frame
+duration with the maximum active audio encoder frame duration and use the audio
+duration if it is larger. Keep the change narrow to interleaver startup pruning;
+do not backport unrelated multi-video or packet timing changes from newer OBS
+unless the task explicitly requires them.
+
+**Wrong**:
+```c
+duration_usec = video->timebase_num * 1000000LL / video->timebase_den;
+return diff > duration_usec ? max_idx + 1 : 0;
+```
+
+**Correct**:
+```c
+duration_usec = video->timebase_num * 1000000LL / video->timebase_den;
+
+if (audio_encoders > 1 && duration_usec < max_audio_duration_usec)
+    duration_usec = max_audio_duration_usec;
+
+return diff > duration_usec ? max_idx + 1 : 0;
+```
 
 ### Mistake: Updating Shipped Encoder JSON Only
 

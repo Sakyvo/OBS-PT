@@ -1,0 +1,31 @@
+{
+  "id": "fix-multitrack-recording-stop-hang",
+  "name": "fix-multitrack-recording-stop-hang",
+  "title": "fix multi-track recording stop hang",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": "plugins/obs-ffmpeg",
+  "priority": "P2",
+  "creator": "Sakyvo",
+  "assignee": "Sakyvo",
+  "createdAt": "2026-06-27",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "plugins/obs-ffmpeg/obs-ffmpeg-mux.c",
+    "libobs/obs-output.c",
+    "UI/window-basic-main-outputs.cpp",
+    "UI/window-basic-main.cpp"
+  ],
+  "notes": "Implemented libobs high-FPS multi-audio interleaver tolerance fix plus ffmpeg_muxer forced-stop fallback; program-independent audio capture remains out of scope.",
+  "meta": {}
+}
