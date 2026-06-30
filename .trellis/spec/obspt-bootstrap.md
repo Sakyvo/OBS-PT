@@ -2,7 +2,7 @@
 
 **Status**: Active  
 **Owner**: OBS-PT Core  
-**Last Updated**: 2026-06-27 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; current PotPvP default profile; new Profile seeding; installer overwrite/launch contract; runtime bugfix installer refresh contract)
+**Last Updated**: 2026-06-27 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; current PotPvP default profile; new Profile seeding; installer overwrite/launch contract; runtime bugfix installer refresh contract; packaged legacy AMF encoder contract)
 
 ## Overview
 
@@ -92,9 +92,9 @@ encoder_probe_result_t probe_record_encoder(void);
 
 **Priority Order**:
 1. `jim_nvenc` (NVIDIA NVENC, OBS fork)
-2. `obs_qsv11` (Intel Quick Sync Video)
-3. `ffmpeg_nvenc` (NVIDIA NVENC, FFmpeg wrapper)
-4. `amd_amf_h264` (AMD AMF H.264)
+2. `amd_amf_h264` (AMD AMF H.264)
+3. `obs_qsv11` (Intel Quick Sync Video)
+4. `ffmpeg_nvenc` (NVIDIA NVENC, FFmpeg wrapper)
 5. `obs_x264` (software fallback)
 
 **Output**:
@@ -121,7 +121,10 @@ $ grep -r 'amd_amf' UI/
 UI/window-basic-settings.cpp:  if (id == "amd_amf_h264") ...
 ```
 
-**Note**: `plugins/enc-amf/` submodule is currently empty in this fork. Encoder availability depends on runtime plugin loading.
+**AMF Packaging**: `amd_amf_h264` is provided by the legacy OBS 27-era
+`plugins/enc-amf` submodule (`obsproject/obs-amd-encoder` tag `1.4.3.7`).
+Encoder availability still depends on runtime plugin loading and compatible AMD
+hardware/driver, but the distribution must ship `enc-amf.dll`.
 
 ### Wrong vs Correct
 
@@ -210,7 +213,7 @@ int apply_encoder_to_profile(const char *profile_name,
 | `jim_nvenc` (default) | `rate_control:"CQP"`, `cqp`, `preset2:"p1"`, `tune:"hq"`, `multipass:"disabled"`, `profile:"high"`, `bf:0`, `psycho_aq:false`. Do not write legacy `preset` for fresh/bootstrap defaults; `jim_nvenc` now reads modern P1-P7 settings and uses `nvEncGetEncodePresetConfigEx`. Existing profiles with legacy `preset` and no `preset2` are migrated by the encoder path. |
 | `ffmpeg_nvenc` | `rate_control:"CQP"`, `cqp`, `preset2:"p1"`, `tune:"hq"`, `multipass:"disabled"`, `profile:"high"`, `bf:0`, `psycho_aq:false` |
 | `obs_qsv11` | `rate_control:"CQP"`, `qpi=qpp=qpb=cqp`, `target_usage:"quality"`, `profile:"high"`, `keyint_sec:2`, `bframes:3`, `latency:"normal"` |
-| `amd_amf_h264` | `Usage:0`, `Profile:100`, `RateControlMethod:0`, `QP.IFrame=QP.PFrame=QP.BFrame=cqp`, `VBVBuffer:1`, `VBVBuffer.Size:100000`, `KeyframeInterval:2.0`, `BFrame.Pattern:0` (forward-looking; enc-amf submodule empty) |
+| `amd_amf_h264` | `Usage:0`, `QualityPreset:0` (Speed/最大性能), `Profile:100`, `RateControlMethod:0`, `QP.IFrame=QP.PFrame=QP.BFrame=26` (always 26, independent of height-based cqp), `VBVBuffer:1`, `VBVBuffer.Size:100000`, `KeyframeInterval:2.0`, `BFrame.Pattern:0`. Top-level `Preset` left as `None=-1` (blank) to avoid template overwrite side effects. |
 | `obs_x264` | `rate_control:"CRF"`, `crf:cqp`, `preset:"veryfast"`, `profile:"high"`, `tune:""`, `keyint_sec:2`, `x264opts:""` (drop all NVENC keys; 480fps software is a correctness fallback, not performant) |
 
 OBS treats CQP/CRF/QP as one 0–51 quality scale (`window-basic-main-outputs.cpp` `CalcCRF`), so the same `cqp` value maps 1:1 across all encoders.
@@ -292,6 +295,60 @@ install(DIRECTORY data/obspt-defaults/
 ```
 
 **Result**: Files land at `<Install Root>/obs-studio/` in the distribution package.
+
+### AMD AMF Encoder Packaging Contract
+
+OBS-PT ships AMD H.264 hardware encoding through the legacy OBS 27
+`plugins/enc-amf` submodule:
+
+- Submodule: `plugins/enc-amf`
+- Upstream: `https://github.com/obsproject/obs-amd-encoder.git`
+- Compatible tag: `1.4.3.7`
+- Runtime encoder id: `amd_amf_h264`
+- Runtime plugin DLL: `<Install Root>/obs-plugins/64bit/enc-amf.dll`
+- Plugin data: `<Install Root>/data/obs-plugins/enc-amf/`
+
+`BUILD_AMF_ENCODER` must default on for Windows builds. The legacy plugin
+expects an AMF SDK root shaped as `amf/public/include`, while OBS-PT's dependency
+bundle stores the headers under `DepsPath/include/AMF`. Configure should bridge
+that by staging headers to `${CMAKE_BINARY_DIR}/_amf-sdk/amf/public/include` and
+setting `AMDAMF_SDKDir` when `DepsPath/include/AMF/components/VideoEncoderVCE.h`
+exists.
+
+On MSVC, `enc-amf` must be compiled with a target-level forced include of
+`plugins/enc-amf-msvc-compat.hpp`. The archived plugin defines a `clamp` macro
+in `Include/plugin.h`; forcing a small header that includes `<algorithm>` first
+prevents the macro from corrupting MSVC 14.44's `std::clamp` declarations
+without carrying local edits inside the read-only upstream submodule.
+
+#### Wrong
+```cmake
+# Builds only on the developer's cached CMake state and fails on clean trees.
+set(AMDAMF_SDKDir "K:/Projects/dev/OBS-PT/build-v143/_amf-sdk")
+add_subdirectory(plugins)
+```
+
+#### Correct
+```cmake
+if(BUILD_AMF_ENCODER AND NOT AMDAMF_SDKDir AND DepsPath)
+  set(_obspt_amf_include_dir "${DepsPath}/include/AMF")
+  if(EXISTS "${_obspt_amf_include_dir}/components/VideoEncoderVCE.h")
+    set(_obspt_amf_sdk_dir "${CMAKE_BINARY_DIR}/_amf-sdk")
+    file(MAKE_DIRECTORY "${_obspt_amf_sdk_dir}/amf/public/include")
+    file(COPY "${_obspt_amf_include_dir}/"
+         DESTINATION "${_obspt_amf_sdk_dir}/amf/public/include")
+    set(AMDAMF_SDKDir "${_obspt_amf_sdk_dir}" CACHE PATH
+        "AMD Advanced Media Framework SDK Directory" FORCE)
+  endif()
+endif()
+
+add_subdirectory(plugins)
+
+if(MSVC AND TARGET enc-amf)
+  target_compile_options(enc-amf PRIVATE
+    "/FI${CMAKE_SOURCE_DIR}/plugins/enc-amf-msvc-compat.hpp")
+endif()
+```
 
 ### Why `/../` Works
 
@@ -564,6 +621,25 @@ get_portable_path(recordings, sizeof(recordings), "recordings");
 QString body = QTStr("...").arg(QString::fromUtf8(recordings));  // ✅ Dynamic
 ```
 
+### Mistake: AMF Frame-Rate Errors Must Not Use Empty Buffers
+
+**Symptom**: AMF recording fails to start or hangs on stop when the capture pipeline reports an extreme frame rate.
+
+**Cause**: `plugins/enc-amf/Source/amf-h264.cpp` forwarded raw frame-rate values directly into AMF and formatted failure messages with `std::vector<char> msgBuf; sprintf(msgBuf.data(), ...)`, which writes into unallocated memory when the AMF call rejects the input.
+
+**Fix**: Keep the AMF encoder change narrow: fall back to `30/1` when the denominator is zero, clamp absurd frame rates to a sane AMF-only ceiling, and use a sized buffer with `snprintf` for diagnostic formatting.
+
+#### Wrong
+```cpp
+std::vector<char> msgBuf;
+sprintf(msgBuf.data(), "%d/%d", num, den);
+```
+
+#### Correct
+```cpp
+std::vector<char> msgBuf(32);
+snprintf(msgBuf.data(), msgBuf.size(), "%d/%d", num, den);
+```
 ### Mistake: Bare Hotkey Names in `basic.ini`
 
 **Symptom**: PageDown or W does not trigger recording/replay buffer even though the preset appears to name the key.

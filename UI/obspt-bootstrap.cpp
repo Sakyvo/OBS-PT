@@ -407,8 +407,8 @@ static bool encoder_registered(const char *id)
 }
 
 static const char *kEncoderPriority[] = {
-	"jim_nvenc",   "obs_qsv11",    "ffmpeg_nvenc",
-	"amd_amf_h264", "obs_x264",    nullptr,
+	"jim_nvenc", "amd_amf_h264", "obs_qsv11",
+	"ffmpeg_nvenc", "obs_x264", nullptr,
 };
 
 encoder_probe_result_t probe_record_encoder(void)
@@ -588,12 +588,14 @@ int apply_encoder_to_profile(const char *profile_name, const char *encoder_id,
 		obs_data_set_int(root, "bframes", 3);
 		obs_data_set_string(root, "latency", "normal");
 	} else if (strcmp(encoder_id, "amd_amf_h264") == 0) {
+		const int amf_cqp = 26;
 		obs_data_set_int(root, "Usage", 0);
 		obs_data_set_int(root, "Profile", 100);
+		obs_data_set_int(root, "QualityPreset", 0);
 		obs_data_set_int(root, "RateControlMethod", 0);
-		obs_data_set_int(root, "QP.IFrame", cqp);
-		obs_data_set_int(root, "QP.PFrame", cqp);
-		obs_data_set_int(root, "QP.BFrame", cqp);
+		obs_data_set_int(root, "QP.IFrame", amf_cqp);
+		obs_data_set_int(root, "QP.PFrame", amf_cqp);
+		obs_data_set_int(root, "QP.BFrame", amf_cqp);
 		obs_data_set_int(root, "VBVBuffer", 1);
 		obs_data_set_int(root, "VBVBuffer.Size", 100000);
 		obs_data_set_double(root, "KeyframeInterval", 2.0);
