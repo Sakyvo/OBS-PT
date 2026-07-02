@@ -123,8 +123,10 @@ falling back to software unexpectedly.
   rebuilds `OBS-PT.exe` with the AMF-before-QSV priority.
 - `build-v143/rundir/RelWithDebInfo/obs-plugins/64bit/enc-amf.dll` exists.
 - `build-v143/_pkg/OBS-PT/obs-plugins/64bit/enc-amf.dll` exists after staging.
-- `build-v143/_pkg/OBS-PT-1.0.0-Installer.exe` was regenerated on
-  2026-06-27 16:18:40 local time.
+- `build-v143/_pkg/OBS-PT-1.0.0-Installer.exe` was regenerated and integrity
+  checked on 2026-07-02 12:45:15 local time after an NSIS integrity error was
+  reported against the previous installer copy. SHA256:
+  `9C7EE4364D1667F8F7557A6AEC7080E2E7452A7B67534DFA8BE000944F43CADE`.
 
 AMD hardware acceptance still requires tester validation because this machine
 does not prove AMF runtime registration on a Radeon GPU.

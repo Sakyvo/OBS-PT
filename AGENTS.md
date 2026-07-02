@@ -18,6 +18,8 @@ If you're using Codex or another agent-capable tool, additional project-scoped h
 
 Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
+<!-- TRELLIS:END -->
+
 ## Installer Rule
 
 Every completed code change that affects the built binary or plugin DLLs must end
@@ -28,5 +30,3 @@ with a fresh installer. After build verification passes, run:
 ```
 
 Verify the new `build-v143/_pkg/OBS-PT-*-Installer.exe` has a recent timestamp.
-
-<!-- TRELLIS:END -->

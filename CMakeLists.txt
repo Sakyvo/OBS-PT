@@ -55,6 +55,22 @@ if(WIN32)
 	endif()
 endif()
 
+if(WIN32)
+	option(BUILD_AMF_ENCODER "Build AMD AMF encoder module" ON)
+
+	if(BUILD_AMF_ENCODER AND NOT AMDAMF_SDKDir AND DepsPath)
+		set(_obspt_amf_include_dir "${DepsPath}/include/AMF")
+		if(EXISTS "${_obspt_amf_include_dir}/components/VideoEncoderVCE.h")
+			set(_obspt_amf_sdk_dir "${CMAKE_BINARY_DIR}/_amf-sdk")
+			file(MAKE_DIRECTORY "${_obspt_amf_sdk_dir}/amf/public/include")
+			file(COPY "${_obspt_amf_include_dir}/"
+				DESTINATION "${_obspt_amf_sdk_dir}/amf/public/include")
+			set(AMDAMF_SDKDir "${_obspt_amf_sdk_dir}" CACHE PATH
+				"AMD Advanced Media Framework SDK Directory" FORCE)
+		endif()
+	endif()
+endif()
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 set(ENABLE_SCRIPTING TRUE CACHE BOOL "Enables scripting")
 set(SCRIPTING_ENABLED OFF CACHE BOOL "Internal global cmake variable" FORCE)
@@ -293,6 +309,12 @@ if(NOT INSTALLER_RUN)
 	add_subdirectory(libobs-opengl)
 	add_subdirectory(libobs)
 	add_subdirectory(plugins)
+
+	if(MSVC AND TARGET enc-amf)
+		target_compile_options(enc-amf PRIVATE
+			"/FI${CMAKE_SOURCE_DIR}/plugins/enc-amf-msvc-compat.hpp")
+	endif()
+
 	add_subdirectory(UI)
 
 	if (ENABLE_UNIT_TESTS)

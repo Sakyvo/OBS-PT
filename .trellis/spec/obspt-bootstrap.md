@@ -382,6 +382,18 @@ runtime smoke pass, refresh `build-v143/_pkg/OBS-PT/` from
 
 Verify `build-v143/_pkg/OBS-PT-<version>-Installer.exe` has a new timestamp and
 that the staged files touched by the fix match the built `rundir` files.
+Timestamp alone is not a sufficient installer validation. Before handing an
+installer to a tester, also verify:
+
+- `build-v143/_pkg/OBS-PT/` exists and contains the expected portable roots
+  (`bin/`, `data/`, `obs-plugins/`, `obs-studio/`).
+- No `OBS-PT-*-Installer.exe` exists anywhere under the NSIS `SOURCE_DIR`;
+  `OutFile` must stay outside the recursively packed tree.
+- The installer archive passes an integrity test, e.g.
+  `7z t build-v143/_pkg/OBS-PT-<version>-Installer.exe`.
+- If doing a silent install smoke test, snapshot and restore the existing HKCU
+  uninstall key plus Desktop/Start Menu shortcuts first; the NSIS script writes
+  per-user installer metadata even when `/D=` points to a workspace smoke path.
 
 #### Wrong
 ```nsi
@@ -579,6 +591,25 @@ obs_data_set_string(root, "multipass", "disabled");
 obs_data_set_int(root, "bf", 0);
 obs_data_set_bool(root, "psycho_aq", false);
 ```
+
+### Mistake: Treating Installer Timestamp as Integrity Validation
+
+**Symptom**: A tester launches the latest-looking
+`OBS-PT-<version>-Installer.exe` and gets NSIS "Installer integrity check has
+failed" before the directory page.
+
+**Cause**: The packaging pass verified only that an installer file had a recent
+timestamp. That does not prove the staging tree existed at build time, that the
+installer was generated from the intended `SOURCE_DIR`, or that the final NSIS
+data block survived copying/uploading.
+
+**Fix**: Recreate `build-v143/_pkg/OBS-PT/` from the build output, rerun
+`makensis`, then test the final exe with `7z t`. If a smoke install is needed,
+use a workspace `/D=` path but snapshot/restore the existing HKCU uninstall key
+and shortcuts because the installer writes per-user metadata.
+
+**Prevention**: Every installer refresh must record the generated exe timestamp,
+SHA256, `7z t` result, and the key staged files that justify the user retest.
 
 ### Mistake: Using `strcat` for Path Construction
 

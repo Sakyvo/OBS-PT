@@ -137,6 +137,16 @@ Get-ChildItem build-v143/_pkg/OBS-PT/obs-plugins/64bit -Filter '*amf*'
 
 & "C:\Program Files (x86)\NSIS\makensis.exe" "UI\installer\obspt-setup.nsi"
 # produced build-v143/_pkg/OBS-PT-1.0.0-Installer.exe
+
+# 2026-07-02 NSIS integrity retest after tester reported "Installer integrity check has failed":
+# - Rebuilt enc-amf and obs targets.
+# - Recreated build-v143/_pkg/OBS-PT via cmake --install.
+# - Regenerated build-v143/_pkg/OBS-PT-1.0.0-Installer.exe.
+# - SHA256:
+#   9C7EE4364D1667F8F7557A6AEC7080E2E7452A7B67534DFA8BE000944F43CADE
+# - 7z t passed: Type=Nsis, Files=1463, Size=213706450, Everything is Ok.
+# - Silent install smoke reached required-file checks and uninstall; existing
+#   D:\OBS-PT HKCU uninstall metadata and shortcuts were restored afterward.
 ```
 
 ## Risky Files

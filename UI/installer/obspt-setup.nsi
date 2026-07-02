@@ -14,6 +14,7 @@ OutFile "..\..\build-v143\_pkg\${INSTALLER_NAME}"
 InstallDir "C:\OBS-PT"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
+CRCCheck force
 
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
