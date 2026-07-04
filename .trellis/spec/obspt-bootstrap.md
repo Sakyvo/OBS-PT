@@ -2,7 +2,7 @@
 
 **Status**: Active  
 **Owner**: OBS-PT Core  
-**Last Updated**: 2026-06-27 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; current PotPvP default profile; new Profile seeding; installer overwrite/launch contract; runtime bugfix installer refresh contract; packaged legacy AMF encoder contract)
+**Last Updated**: 2026-07-04 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; current PotPvP default profile; new Profile seeding; installer overwrite/launch contract; runtime bugfix installer refresh contract; packaged legacy AMF encoder contract; 480fps AMF stop watchdog contract)
 
 ## Overview
 
@@ -671,6 +671,45 @@ sprintf(msgBuf.data(), "%d/%d", num, den);
 std::vector<char> msgBuf(32);
 snprintf(msgBuf.data(), msgBuf.size(), "%d/%d", num, den);
 ```
+
+### Mistake: Fixing AMF Stop Hangs by Lowering PotPvP FPS
+
+**Symptom**: On AMD AMF, recording starts at the PotPvP 480fps default, then
+stopping recording can leave OBS-PT not responding while the status bar reports
+encoder overload.
+
+**Cause**: The legacy AMF stop path may spend a long time draining encoder
+backlog after overload. Lowering `FPSNum=480` hides the symptom but violates the
+OBS-PT product contract: high-FPS recording is foundational for PotPvP defaults.
+
+**Fix**: Keep the 480fps default. Let the first stop request drain normally, but
+bound the wait. `OBSBasic::RecordStopping()` must start a 30-second single-shot
+watchdog. If `RecordingStop` has not arrived, `recordingStopping` is still true,
+and `outputHandler->RecordingActive()` is still true, the watchdog calls
+`outputHandler->StopRecording(true)` to enter the existing force-stop path.
+`RecordingStart()` and `RecordingStop()` must clear `recordingStopping` and stop
+the watchdog.
+
+#### Wrong
+```cpp
+// Do not special-case AMD by lowering the PotPvP profile frame rate.
+config_set_uint(config, "Video", "FPSNum", 60);
+```
+
+#### Correct
+```cpp
+recordingStopping = true;
+recordingStopTimer->start(30000);
+
+// On timeout, only force recovery if the original stop is still pending.
+if (recordingStopping && outputHandler && outputHandler->RecordingActive())
+    outputHandler->StopRecording(true);
+```
+
+**Prevention**: AMD stop-hang fixes must preserve `FPSNum=480`, prefer normal
+encoder drain first, and document any force-stop threshold in the task PRD and
+installer validation notes.
+
 ### Mistake: Bare Hotkey Names in `basic.ini`
 
 **Symptom**: PageDown or W does not trigger recording/replay buffer even though the preset appears to name the key.

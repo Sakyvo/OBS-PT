@@ -67,12 +67,21 @@
    - Confirm AMF quality preset is maximum performance and QP values are 26.
    - Start/stop a recording and inspect the log for AMF encoder creation and
      normal stop completion.
+   - 2026-07-03 follow-up: AMD tester still reports stop-recording not
+     responding at 480fps with encoder-overload status. User rejected lowering
+     AMD FPS and prefers waiting for drain. Implemented a 30-second recording
+     stop watchdog in `OBSBasic`: first stop waits normally; if no
+     `RecordingStop` arrives after 30 seconds while recording is still active,
+     OBS-PT calls the existing force-stop path automatically.
 
-9. Update specs and finish. **Spec update in progress.**
+9. Update specs and finish. **Spec update done; tester validation pending.**
    - Update `.trellis/spec/obspt-bootstrap.md` with the final AMF packaging and
      priority contract.
+   - Added the 480fps AMF stop-watchdog contract to
+     `.trellis/spec/obspt-bootstrap.md`: keep PotPvP at 480fps, allow normal
+     AMF drain first, then force recovery after a 30-second bounded wait.
    - Run `trellis-check`.
-   - Commit task work, archive, and record journal after user validation.
+   - Commit task work. Archive and record journal after user validation.
 
 ## Validation Commands
 
@@ -137,6 +146,21 @@ Get-ChildItem build-v143/_pkg/OBS-PT/obs-plugins/64bit -Filter '*amf*'
 
 & "C:\Program Files (x86)\NSIS\makensis.exe" "UI\installer\obspt-setup.nsi"
 # produced build-v143/_pkg/OBS-PT-1.0.0-Installer.exe
+
+# 2026-07-04 AMD stop-watchdog retest installer:
+# - Added a 30-second OBSBasic recording stop watchdog. First stop waits for the
+#   normal output/AMF drain path; if no RecordingStop arrives and recording is
+#   still active after 30 seconds, OBS-PT calls outputHandler->StopRecording(true).
+# - cmake --build build-v143 --config RelWithDebInfo --target obs --parallel
+#   succeeded and rebuilt build-v143/UI/RelWithDebInfo/OBS-PT.exe.
+# - cmake --install build-v143 --config RelWithDebInfo --prefix
+#   K:/Projects/dev/OBS-PT/build-v143/_pkg/OBS-PT succeeded.
+# - NSIS regenerated build-v143/_pkg/OBS-PT-1.0.0-Installer.exe.
+# - Installer timestamp: 2026-07-04 11:35:19 local time.
+# - Installer size: 43,382,801 bytes.
+# - SHA256:
+#   B855AD11D7DF5390A693444EE9740529322D696579D003E001A3BAC023D767BC
+# - 7z t passed: Type=Nsis, Files=1463, Size=213707474, Everything is Ok.
 
 # 2026-07-02 NSIS integrity retest after tester reported "Installer integrity check has failed":
 # - Rebuilt enc-amf and obs targets.

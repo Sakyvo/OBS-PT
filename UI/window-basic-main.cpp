@@ -338,6 +338,20 @@ OBSBasic::OBSBasic(QWidget *parent)
 	connect(diskFullTimer, SIGNAL(timeout()), this,
 		SLOT(CheckDiskSpaceRemaining()));
 
+	auto *recordingStopTimer = new QTimer(this);
+	recordingStopTimer->setObjectName(QStringLiteral("recordingStopTimer"));
+	recordingStopTimer->setSingleShot(true);
+	connect(recordingStopTimer, &QTimer::timeout, this, [this]() {
+		if (!recordingStopping || !outputHandler ||
+		    !outputHandler->RecordingActive()) {
+			return;
+		}
+
+		blog(LOG_WARNING,
+		     "[OBS-PT] recording stop exceeded 30 seconds; forcing stop");
+		outputHandler->StopRecording(true);
+	});
+
 	renameScene = new QAction(ui->scenesDock);
 	renameScene->setShortcutContext(Qt::WidgetWithChildrenShortcut);
 	connect(renameScene, SIGNAL(triggered()), this, SLOT(EditSceneName()));
@@ -6213,6 +6227,8 @@ void OBSBasic::OpenSceneFilters()
 #define VIRTUAL_CAM_STOP \
 	"==== Virtual Camera Stop ==========================================="
 
+static constexpr int RECORDING_STOP_WATCHDOG_MS = 30000;
+
 void OBSBasic::DisplayStreamStartError()
 {
 	QString message = !outputHandler->lastError.empty()
@@ -7022,6 +7038,9 @@ void OBSBasic::RecordStopping()
 		sysTrayRecord->setText(ui->recordButton->text());
 
 	recordingStopping = true;
+	if (auto *recordingStopTimer =
+		    findChild<QTimer *>(QStringLiteral("recordingStopTimer")))
+		recordingStopTimer->start(RECORDING_STOP_WATCHDOG_MS);
 	if (api)
 		api->on_event(OBS_FRONTEND_EVENT_RECORDING_STOPPING);
 }
@@ -7046,6 +7065,9 @@ void OBSBasic::RecordingStart()
 		sysTrayRecord->setText(ui->recordButton->text());
 
 	recordingStopping = false;
+	if (auto *recordingStopTimer =
+		    findChild<QTimer *>(QStringLiteral("recordingStopTimer")))
+		recordingStopTimer->stop();
 	if (api)
 		api->on_event(OBS_FRONTEND_EVENT_RECORDING_STARTED);
 
@@ -7060,6 +7082,11 @@ void OBSBasic::RecordingStart()
 
 void OBSBasic::RecordingStop(int code, QString last_error)
 {
+	recordingStopping = false;
+	if (auto *recordingStopTimer =
+		    findChild<QTimer *>(QStringLiteral("recordingStopTimer")))
+		recordingStopTimer->stop();
+
 	ui->statusbar->RecordingStopped();
 	ui->recordButton->setText(QTStr("Basic.Main.StartRecording"));
 	ui->recordButton->setChecked(false);

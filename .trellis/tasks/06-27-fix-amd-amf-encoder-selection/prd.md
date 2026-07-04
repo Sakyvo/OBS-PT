@@ -127,6 +127,10 @@ falling back to software unexpectedly.
   checked on 2026-07-02 12:45:15 local time after an NSIS integrity error was
   reported against the previous installer copy. SHA256:
   `9C7EE4364D1667F8F7557A6AEC7080E2E7452A7B67534DFA8BE000944F43CADE`.
+- After the 30-second stop-watchdog change, `OBS-PT.exe` was rebuilt and the
+  installer was regenerated on 2026-07-04 11:35:19 local time. SHA256:
+  `B855AD11D7DF5390A693444EE9740529322D696579D003E001A3BAC023D767BC`.
+  `7z t` passed (`Type=Nsis`, `Files=1463`, `Everything is Ok`).
 
 AMD hardware acceptance still requires tester validation because this machine
 does not prove AMF runtime registration on a Radeon GPU.
@@ -140,6 +144,29 @@ does not prove AMF runtime registration on a Radeon GPU.
 - The tester reports a P2 popup related to P3 and a P4 AMF-exclusive bug. The
   exact text/behavior still needs one focused clarification because the images
   are not available as local files in this session.
+
+## AMD Tester Feedback 2026-07-03
+
+- On another AMD GPU machine, recording can start but stopping recording still
+  leaves OBS-PT not responding.
+- The screenshot shows OBS-PT 1.0.0 in the PotPvP Profile/Scene, recording at
+  `480.00 fps`, with the record timer at about 6 seconds and the status bar
+  warning in Chinese: `编码过载！请考虑降低视频设置或使用更快的编码预设。`
+- Local code inspection shows OBS-PT still writes `FPSNum=480` in both the
+  shipped PotPvP `basic.ini` and `apply_monitor_video_to_profile()`, while the
+  legacy AMF encoder stop path calls `m_AMFEncoder->Drain()` after overloaded
+  input queue behavior.
+- Product decision from user: high-FPS recording is foundational for OBS-PT, so
+  AMD AMF must keep the 480fps PotPvP default. Do not solve this class of bug by
+  lowering AMD capture/output FPS.
+- Product decision from user: stopping should preferably wait for AMF to drain
+  queued frames rather than immediately discarding backlog. The remaining fix
+  direction is therefore stop-path resilience with bounded waiting and a
+  responsive UI, not a lower-FPS fallback and not an eager drop-on-stop policy.
+- Product decision from user: the bounded wait before forced recovery is 30
+  seconds. The first stop should allow AMF to drain normally; if stop completion
+  has not arrived after 30 seconds, OBS-PT may enter the existing force-stop
+  path to recover the UI/process.
 
 ## Out of Scope
 
