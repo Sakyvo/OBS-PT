@@ -21,6 +21,7 @@
 
 struct array_output_data {
 	DARRAY(uint8_t) bytes;
+	size_t pos;
 };
 
 EXPORT void array_output_serializer_init(struct serializer *s,

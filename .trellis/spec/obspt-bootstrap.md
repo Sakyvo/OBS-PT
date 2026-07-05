@@ -539,6 +539,11 @@ and a separate task explicitly evaluates Replay Buffer.
 - The native MP4 muxer must accept OBS-PT's actual AAC encoder codec string.
   `ffmpeg_aac` exposes `.codec = "AAC"` in this branch, so the muxer's AAC
   match must be case-insensitive.
+- The native MP4 muxer writes the final `moov` box through
+  `array_output_serializer` so nested MP4 box sizes can be backfilled. That
+  serializer must implement `seek` and maintain a write cursor; append-only
+  behavior corrupts box sizes and produces MP4 files with no discoverable
+  streams after normal stop.
 - Keep PotPvP's high-FPS contract: `FPSType=2`, `FPSNum=480`, `FPSDen=1`.
 
 #### 4. Validation & Error Matrix
@@ -603,6 +608,27 @@ strPath = GetRecordingFilename(path, RecordingFormatExtension(format),
 ```c
 if (astrcmpi(codec, "aac") == 0)
     return CODEC_AAC;
+```
+
+#### Wrong
+```c
+// Append-only array serializer: serializer_seek() fails, so MP4 box-size
+// backfills are appended instead of overwritten.
+static size_t array_output_write(void *param, const void *data, size_t size)
+{
+    struct array_output_data *output = param;
+    da_push_back_array(output->bytes, (uint8_t *)data, size);
+    return size;
+}
+```
+
+#### Correct
+```c
+// Seekable array serializer: Hybrid MP4 can rewrite placeholder box sizes
+// while building the final moov buffer.
+s->write = array_output_write;
+s->seek = array_output_seek;
+s->get_pos = array_output_get_pos;
 ```
 
 ---
