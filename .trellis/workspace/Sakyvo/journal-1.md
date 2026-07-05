@@ -325,3 +325,39 @@ Fixed OBS-PT high-FPS multi-audio recording stop hang by widening libobs initial
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Finish AMD AMF encoder selection
+
+**Date**: 2026-07-05
+**Task**: Finish AMD AMF encoder selection
+**Branch**: `master`
+
+### Summary
+
+Restored and packaged AMD AMF, hardened bootstrap defaults and installer validation, and added bounded 30s recording stop recovery while preserving 480fps PotPvP defaults.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `268cbd0` | (see git log) |
+| `a1e89ef` | (see git log) |
+| `7608c4e` | (see git log) |
+| `600e16b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
