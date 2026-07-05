@@ -361,3 +361,36 @@ Restored and packaged AMD AMF, hardened bootstrap defaults and installer validat
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: Port Hybrid MP4 recording
+
+**Date**: 2026-07-05
+**Task**: Port Hybrid MP4 recording
+**Branch**: `master`
+
+### Summary
+
+Ported native Hybrid MP4 normal recording, set fresh PotPvP defaults to hybrid_mp4, preserved Replay Buffer on replay_buffer for separate evaluation, regenerated and integrity-checked installer.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5c5444f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

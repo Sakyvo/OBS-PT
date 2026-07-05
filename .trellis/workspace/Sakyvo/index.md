@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
+- **Total Sessions**: 10
 - **Last Active**: 2026-07-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~363 | Active |
+| `journal-1.md` | ~396 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-07-05 | Port Hybrid MP4 recording | `5c5444f` | `master` |
 | 9 | 2026-07-05 | Finish AMD AMF encoder selection | `268cbd0`, `a1e89ef`, `7608c4e`, `600e16b` | `master` |
 | 8 | 2026-06-27 | Fix multitrack recording stop hang | `ab3609b` | `master` |
 | 7 | 2026-06-26 | Update OBS-PT defaults to 1.0.0 | `bdad718` | `master` |
