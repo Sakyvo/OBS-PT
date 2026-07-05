@@ -1374,7 +1374,7 @@ bool OBSBasic::InitBasicConfigDefaults()
 	config_set_default_string(basicConfig, "SimpleOutput", "FilePath",
 				  GetDefaultVideoSavePath().c_str());
 	config_set_default_string(basicConfig, "SimpleOutput", "RecFormat",
-				  "mkv");
+				  "hybrid_mp4");
 	config_set_default_uint(basicConfig, "SimpleOutput", "VBitrate", 2500);
 	config_set_default_uint(basicConfig, "SimpleOutput", "ABitrate", 160);
 	config_set_default_bool(basicConfig, "SimpleOutput", "UseAdvanced",
@@ -1402,7 +1402,8 @@ bool OBSBasic::InitBasicConfigDefaults()
 
 	config_set_default_string(basicConfig, "AdvOut", "RecFilePath",
 				  GetDefaultVideoSavePath().c_str());
-	config_set_default_string(basicConfig, "AdvOut", "RecFormat", "mkv");
+	config_set_default_string(basicConfig, "AdvOut", "RecFormat",
+				  "hybrid_mp4");
 	config_set_default_bool(basicConfig, "AdvOut", "RecUseRescale", false);
 	config_set_default_uint(basicConfig, "AdvOut", "RecTracks", (1 << 0));
 	config_set_default_string(basicConfig, "AdvOut", "RecEncoder", "none");
@@ -6988,6 +6989,10 @@ void OBSBasic::AutoRemux(QString input)
 
 	/* do not remux if lossless */
 	if (suffix.compare("avi", Qt::CaseInsensitive) == 0) {
+		return;
+	}
+
+	if (suffix.compare("mp4", Qt::CaseInsensitive) == 0) {
 		return;
 	}
 

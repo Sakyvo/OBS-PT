@@ -1756,6 +1756,11 @@
                       </item>
                       <item>
                        <property name="text">
+                        <string notr="true">hybrid_mp4</string>
+                       </property>
+                      </item>
+                      <item>
+                       <property name="text">
                         <string notr="true">mov</string>
                        </property>
                       </item>
@@ -2317,6 +2322,11 @@
                               <item>
                                <property name="text">
                                 <string notr="true">mp4</string>
+                               </property>
+                              </item>
+                              <item>
+                               <property name="text">
+                                <string notr="true">hybrid_mp4</string>
                                </property>
                               </item>
                               <item>

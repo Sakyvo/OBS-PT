@@ -2,7 +2,7 @@
 
 **Status**: Active  
 **Owner**: OBS-PT Core  
-**Last Updated**: 2026-07-04 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; current PotPvP default profile; new Profile seeding; installer overwrite/launch contract; runtime bugfix installer refresh contract; packaged legacy AMF encoder contract; 480fps AMF stop watchdog contract)
+**Last Updated**: 2026-07-05 (bootstrap v3: hardware-adaptive defaults + OBS-PT rebrand; current PotPvP default profile; new Profile seeding; installer overwrite/launch contract; runtime bugfix installer refresh contract; packaged legacy AMF encoder contract; 480fps AMF stop watchdog contract; Hybrid MP4 normal recording default)
 
 ## Overview
 
@@ -502,6 +502,107 @@ wizard.exec();
 CopyProfile("PotPvP", newPath.c_str());
 config.Open(newPath.c_str(), CONFIG_OPEN_ALWAYS);
 config_set_string(config, "General", "Name", newName.c_str());
+```
+
+### Hybrid MP4 Recording Default Contract
+
+#### 1. Scope / Trigger
+
+Hybrid MP4 is the default for normal recording only. Replay Buffer must stay on
+the existing `replay_buffer` output until normal Hybrid MP4 recording is stable
+and a separate task explicitly evaluates Replay Buffer.
+
+#### 2. Signatures / Keys
+
+- Profile keys: `SimpleOutput.RecFormat` and `AdvOut.RecFormat`.
+- Hybrid format id: `hybrid_mp4`.
+- Generated file extension: `hybrid_mp4 -> mp4`.
+- Normal recording output id: `hybrid_mp4 -> mp4_output`; other standard
+  formats keep `ffmpeg_muxer`.
+- Shipped default: `UI/data/obspt-defaults/.../PotPvP/basic.ini`
+  `[AdvOut] RecFormat=hybrid_mp4`.
+- Fresh fallback defaults in `OBSBasic::InitBasicConfigDefaults()` must set both
+  simple and advanced `RecFormat` defaults to `hybrid_mp4`.
+- Native output registration: `plugins/obs-outputs/obs-outputs.c` must register
+  `mp4_output_info`.
+
+#### 3. Contracts
+
+- Hybrid MP4 writes directly to a `.mp4` path and must not be auto-remuxed to
+  another temporary container.
+- Ordinary `mp4` remains visible in Settings and continues to use
+  `ffmpeg_muxer` as the manual workaround.
+- If `mp4_output` cannot be created or `obs_output_start()` fails, OBS-PT must
+  show the recording-start failure dialog and append
+  `Output.StartFailedHybridMP4Fallback`; it must not silently fall back to
+  ordinary MP4.
+- The native MP4 muxer must accept OBS-PT's actual AAC encoder codec string.
+  `ffmpeg_aac` exposes `.codec = "AAC"` in this branch, so the muxer's AAC
+  match must be case-insensitive.
+- Keep PotPvP's high-FPS contract: `FPSType=2`, `FPSNum=480`, `FPSDen=1`.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+|---|---|
+| New install / fresh default Profile | `RecFormat=hybrid_mp4`, `AutoRemux=false`, `FPSNum=480` |
+| Normal recording with `hybrid_mp4` | Creates `mp4_output`, generated path ends in `.mp4` |
+| Normal recording with ordinary `mp4` | Creates `ffmpeg_muxer`, ordinary MP4 warning behavior remains |
+| Replay Buffer enabled while `RecFormat=hybrid_mp4` | Still creates `replay_buffer`; do not create `mp4_output` |
+| `mp4_output` creation/start failure | Show start-failed dialog with ordinary-MP4 workaround text |
+| Installer refresh | Staged `obs-outputs.dll` hash matches build output; installer passes `7z t` |
+
+#### 5. Good / Base / Bad Cases
+
+- Good: PotPvP default normal recording selects `hybrid_mp4`, records to
+  `.mp4`, and uses native fragmented MP4 while active.
+- Base: User manually selects ordinary `mp4`; recording uses the legacy FFmpeg
+  muxer and remains a deliberate workaround.
+- Bad: `hybrid_mp4` writes `.hybrid_mp4`, auto-remuxes to itself, switches Replay
+  Buffer to `mp4_output`, or catches a start failure by silently using ordinary
+  MP4.
+
+#### 6. Tests Required
+
+- Build `obs-outputs` and `obs`.
+- Static check: search `hybrid_mp4`, `mp4_output`, `replay_buffer`, and
+  `buffered_file_serializer` to verify routing and packaging.
+- Verify staged `PotPvP/basic.ini` contains `RecFormat=hybrid_mp4`,
+  `AutoRemux=false`, and `FPSNum=480`.
+- Verify staged `obs-outputs.dll` hash equals the built DLL hash.
+- Generate a fresh installer and run `7z t`.
+- Runtime smoke before tester handoff: start/stop a short Hybrid MP4 normal
+  recording, test selected audio tracks, and force-interrupt a disposable
+  recording to confirm fragmented MP4 recovery.
+
+#### 7. Wrong vs Correct
+
+#### Wrong
+```cpp
+// Treats the format id as the file extension and silently falls back.
+fileOutput = obs_output_create("ffmpeg_muxer", "file_output", nullptr, nullptr);
+strPath = GetRecordingFilename(path, "hybrid_mp4", noSpace, overwrite, fmt);
+```
+
+```c
+// OBS-PT's ffmpeg_aac codec string is "AAC" in this branch.
+if (strcmp(codec, "aac") == 0)
+    return CODEC_AAC;
+```
+
+#### Correct
+```cpp
+fileOutput = obs_output_create(
+    IsHybridMP4Format(format) ? "mp4_output" : "ffmpeg_muxer",
+    "file_output", nullptr, nullptr);
+strPath = GetRecordingFilename(path, RecordingFormatExtension(format),
+                               noSpace, overwrite, fmt,
+                               !IsHybridMP4Format(format));
+```
+
+```c
+if (astrcmpi(codec, "aac") == 0)
+    return CODEC_AAC;
 ```
 
 ---
