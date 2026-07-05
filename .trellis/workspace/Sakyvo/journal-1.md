@@ -394,3 +394,36 @@ Ported native Hybrid MP4 normal recording, set fresh PotPvP defaults to hybrid_m
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Fix Hybrid MP4 moov finalization
+
+**Date**: 2026-07-05
+**Task**: Fix Hybrid MP4 moov finalization
+**Branch**: `master`
+
+### Summary
+
+Fixed append-only array serializer corrupting Hybrid MP4 moov box sizes; validated default 480fps Hybrid MP4, multi-track Hybrid MP4, interrupted fragmented MP4 recovery, ordinary MP4 fallback, and regenerated installer.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ca95140` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
