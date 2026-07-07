@@ -1746,7 +1746,7 @@
                      <widget class="QComboBox" name="simpleOutRecFormat">
                       <item>
                        <property name="text">
-                        <string notr="true">flv</string>
+                        <string notr="true">hybrid_mp4</string>
                        </property>
                       </item>
                       <item>
@@ -1756,7 +1756,7 @@
                       </item>
                       <item>
                        <property name="text">
-                        <string notr="true">hybrid_mp4</string>
+                        <string notr="true">mkv</string>
                        </property>
                       </item>
                       <item>
@@ -1766,7 +1766,7 @@
                       </item>
                       <item>
                        <property name="text">
-                        <string notr="true">mkv</string>
+                        <string notr="true">flv</string>
                        </property>
                       </item>
                       <item>
@@ -2316,7 +2316,7 @@
                              <widget class="QComboBox" name="advOutRecFormat">
                               <item>
                                <property name="text">
-                                <string notr="true">flv</string>
+                                <string notr="true">hybrid_mp4</string>
                                </property>
                               </item>
                               <item>
@@ -2326,7 +2326,7 @@
                               </item>
                               <item>
                                <property name="text">
-                                <string notr="true">hybrid_mp4</string>
+                                <string notr="true">mkv</string>
                                </property>
                               </item>
                               <item>
@@ -2336,7 +2336,7 @@
                               </item>
                               <item>
                                <property name="text">
-                                <string notr="true">mkv</string>
+                                <string notr="true">flv</string>
                                </property>
                               </item>
                               <item>

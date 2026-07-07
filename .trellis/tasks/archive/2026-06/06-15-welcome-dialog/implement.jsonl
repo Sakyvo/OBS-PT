@@ -1,5 +1,0 @@
-{"file": ".trellis/tasks/06-15-welcome-dialog/prd.md", "reason": "需求/AC + 5 页文案原文 + 决策（双语 locale、复用 About 链接、替换首启 QMessageBox）。实施的最终依据。"}
-{"file": ".trellis/tasks/06-15-welcome-dialog/design.md", "reason": "技术契约：OBSWelcome 类/.ui 结构、导航状态机（prev 首页隐藏、末页 End 黑色禁用）、入口接线（run_first_run_bootstrap_if_needed 改 bool+out_is_software、About 链接复用）、CMake 3 处、locale 键表。"}
-{"file": ".trellis/tasks/06-15-welcome-dialog/implement.md", "reason": "Step 0-5 有序清单 + 构建/部署/验证命令 + 回滚点。"}
-{"file": ".trellis/spec/obspt-bootstrap.md", "reason": "首启契约现状（run_first_run_bootstrap_if_needed、FirstRunCompleted 门控、ShowFirstRunRecommendationsDialog）。本任务替换首启弹窗并改其返回值，须先懂现状再改。"}
-{"file": "CONTEXT.md", "reason": "术语统一（Profile/配置文件、Install Root、便携化等），保证弹窗文案与项目词汇一致。"}
