@@ -75,6 +75,7 @@
 #include <sstream>
 
 #ifdef _WIN32
+#include "win-update/obspt-update.hpp"
 #include "win-update/win-update.hpp"
 #include "windows.h"
 #endif
@@ -2087,7 +2088,7 @@ void OBSBasic::OBSInit()
 	ui->actionFullscreenInterface = nullptr;
 #endif
 
-#if defined(_WIN32) || defined(__APPLE__)
+#if !defined(_WIN32)
 	if (ui->actionCheckForUpdates) {
 		ui->actionCheckForUpdates->setVisible(false);
 		ui->actionCheckForUpdates->setEnabled(false);
@@ -2595,9 +2596,6 @@ OBSBasic::~OBSBasic()
 	/* clear out UI event queue */
 	QApplication::sendPostedEvents(nullptr);
 	QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-
-	if (updateCheckThread && updateCheckThread->isRunning())
-		updateCheckThread->wait();
 
 	delete screenshotData;
 	delete multiviewProjectorMenu;
@@ -3663,8 +3661,6 @@ bool OBSBasic::QueryRemoveSource(obs_source_t *source)
 	return Yes == remove_source.clickedButton();
 }
 
-#define UPDATE_CHECK_INTERVAL (60 * 60 * 24 * 4) /* 4 days */
-
 #ifdef UPDATE_SPARKLE
 void init_sparkle_updater(bool update_to_undeployed);
 void trigger_sparkle_update();
@@ -3672,18 +3668,32 @@ void trigger_sparkle_update();
 
 void OBSBasic::TimedCheckForUpdates()
 {
-	/* OBS-PT will use its own update channel later. */
+#ifdef _WIN32
+	if (!config_get_bool(GetGlobalConfig(), "General", "EnableAutoUpdates"))
+		return;
+
+	QTimer::singleShot(1000, this, [this]() {
+		if (!closing)
+			CheckForUpdates(false);
+	});
+#endif
 }
 
 void OBSBasic::CheckForUpdates(bool manualUpdate)
 {
+#ifdef _WIN32
+	if (!updateManager) {
+		updateManager = new OBSUpdateManager(this);
+		connect(updateManager, &OBSUpdateManager::BusyChanged, this,
+			[this](bool busy) {
+				if (ui->actionCheckForUpdates)
+					ui->actionCheckForUpdates->setEnabled(!busy);
+			});
+	}
+	updateManager->Check(manualUpdate);
+#else
 	UNUSED_PARAMETER(manualUpdate);
-}
-
-void OBSBasic::updateCheckFinished()
-{
-	if (ui->actionCheckForUpdates)
-		ui->actionCheckForUpdates->setEnabled(false);
+#endif
 }
 
 void OBSBasic::DuplicateSelectedScene()
@@ -4645,8 +4655,6 @@ void OBSBasic::closeEvent(QCloseEvent *event)
 		introCheckThread->wait();
 	if (whatsNewInitThread)
 		whatsNewInitThread->wait();
-	if (updateCheckThread)
-		updateCheckThread->wait();
 	if (logUploadThread)
 		logUploadThread->wait();
 	if (devicePropertiesThread && devicePropertiesThread->isRunning()) {
@@ -7589,13 +7597,15 @@ void OBSBasic::on_actionHelpPortal_triggered()
 
 void OBSBasic::on_actionWebsite_triggered()
 {
-	QUrl url = QUrl("https://obsproject.com", QUrl::TolerantMode);
+	QUrl url = QUrl("https://github.com/Sakyvo/OBS-PT",
+			QUrl::TolerantMode);
 	QDesktopServices::openUrl(url);
 }
 
 void OBSBasic::on_actionDiscord_triggered()
 {
-	QUrl url = QUrl("https://obsproject.com/discord", QUrl::TolerantMode);
+	QUrl url = QUrl("https://discord.gg/yqDYUajJU9",
+			QUrl::TolerantMode);
 	QDesktopServices::openUrl(url);
 }
 

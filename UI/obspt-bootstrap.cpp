@@ -281,6 +281,15 @@ void prepare_obspt_global_config(config_t *global_config)
 	if (!global_config)
 		return;
 
+	bool config_changed = false;
+	int updater_settings_version = (int)config_get_int(
+		global_config, "OBSPTUpdater", "SettingsVersion");
+	if (updater_settings_version < 1) {
+		config_set_bool(global_config, "General", "EnableAutoUpdates", true);
+		config_set_int(global_config, "OBSPTUpdater", "SettingsVersion", 1);
+		config_changed = true;
+	}
+
 	bool first_run_completed =
 		config_get_bool(global_config, "OBSPT", "FirstRunCompleted");
 	int bootstrap_version =
@@ -311,16 +320,18 @@ void prepare_obspt_global_config(config_t *global_config)
 		if (lang && strcmp(lang, "en-US") == 0)
 			config_remove_value(global_config, "General",
 					    "Language");
+		config_changed = true;
 	}
 
 	if (needs_repair) {
 		config_set_bool(global_config, "General", "FirstRun", true);
 		config_set_int(global_config, "General", "LastVersion",
 			       LIBOBS_API_VER);
-		config_set_bool(global_config, "General", "EnableAutoUpdates",
-				false);
-		config_save_safe(global_config, "tmp", nullptr);
+		config_changed = true;
 	}
+
+	if (config_changed)
+		config_save_safe(global_config, "tmp", nullptr);
 }
 
 static void apply_monitor_video_to_profile(const char *profile_name)
@@ -564,6 +575,15 @@ void apply_record_path_to_config(config_t *cfg, const char *abs_path)
 	config_set_string(cfg, "SimpleOutput", "FilePath", abs_path);
 }
 
+static int recording_quality_value(const char *encoder_id, int base_cy)
+{
+	const bool below_1080 = base_cy > 0 && base_cy < 1080;
+	if (strcmp(encoder_id, "amd_amf_h264") == 0)
+		return below_1080 ? 22 : 27;
+
+	return below_1080 ? 20 : 26;
+}
+
 int apply_encoder_to_profile(const char *profile_name, const char *encoder_id,
 			     int cqp)
 {
@@ -588,18 +608,18 @@ int apply_encoder_to_profile(const char *profile_name, const char *encoder_id,
 		obs_data_set_int(root, "bframes", 3);
 		obs_data_set_string(root, "latency", "normal");
 	} else if (strcmp(encoder_id, "amd_amf_h264") == 0) {
-		const int amf_cqp = 26;
-		obs_data_set_int(root, "Usage", 0);
-		obs_data_set_int(root, "Profile", 100);
-		obs_data_set_int(root, "QualityPreset", 0);
-		obs_data_set_int(root, "RateControlMethod", 0);
-		obs_data_set_int(root, "QP.IFrame", amf_cqp);
-		obs_data_set_int(root, "QP.PFrame", amf_cqp);
-		obs_data_set_int(root, "QP.BFrame", amf_cqp);
-		obs_data_set_int(root, "VBVBuffer", 1);
-		obs_data_set_int(root, "VBVBuffer.Size", 100000);
-		obs_data_set_double(root, "KeyframeInterval", 2.0);
-		obs_data_set_int(root, "BFrame.Pattern", 0);
+		obs_data_set_int(root, "AMF.H264.Preset", -1);
+		obs_data_set_int(root, "AMF.H264.Usage", 0);
+		obs_data_set_int(root, "AMF.H264.Profile", 100);
+		obs_data_set_int(root, "AMF.H264.QualityPreset", 0);
+		obs_data_set_int(root, "AMF.H264.RateControlMethod", 0);
+		obs_data_set_int(root, "AMF.H264.QP.IFrame", cqp);
+		obs_data_set_int(root, "AMF.H264.QP.PFrame", cqp);
+		obs_data_set_int(root, "AMF.H264.QP.BFrame", cqp);
+		obs_data_set_int(root, "AMF.H264.VBVBuffer", 1);
+		obs_data_set_int(root, "AMF.H264.VBVBuffer.Size", 100000);
+		obs_data_set_double(root, "AMF.H264.KeyframeInterval", 2.0);
+		obs_data_set_int(root, "AMF.H264.BFrame.Pattern", 0);
 	} else if (strcmp(encoder_id, "obs_x264") == 0) {
 		obs_data_set_string(root, "rate_control", "CRF");
 		obs_data_set_int(root, "crf", cqp);
@@ -702,8 +722,12 @@ bool run_first_run_bootstrap_if_needed(const char *active_profile_name,
 			      ? (int)config_get_uint(active_config, "Video",
 						     "BaseCY")
 			      : 0;
-	int cqp = (base_cy > 0 && base_cy < 1080) ? 20 : 26;
-	apply_encoder_to_profile(active_profile_name, enc.encoder_id, cqp);
+	int cqp = recording_quality_value(enc.encoder_id, base_cy);
+	int encoder_config_result = apply_encoder_to_profile(
+		active_profile_name, enc.encoder_id, cqp);
+	if (active_config && encoder_config_result == 0)
+		config_set_string(active_config, "AdvOut", "RecEncoder",
+				  enc.encoder_id);
 
 	char recordings_path[512];
 	get_portable_path(recordings_path, sizeof(recordings_path), "recordings");

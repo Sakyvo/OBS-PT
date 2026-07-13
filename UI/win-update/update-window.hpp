@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QUrl>
 #include <memory>
 
 #include "ui_OBSUpdate.h"
@@ -9,8 +10,9 @@ class OBSUpdate : public QDialog {
 	Q_OBJECT
 
 public:
-	enum ReturnVal { No, Yes, Skip };
+	enum ReturnVal { Ignore, No = Ignore, Update, Yes = Update, Skip };
 
+	OBSUpdate(QWidget *parent, const QString &text, const QUrl &releaseUrl);
 	OBSUpdate(QWidget *parent, bool manualUpdate, const QString &text);
 
 public slots:

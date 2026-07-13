@@ -1,14 +1,42 @@
 #include "window-basic-about.hpp"
 #include "window-basic-main.hpp"
 #include "window-basic-welcome.hpp"
+#include "obs-app.hpp"
 #include "qt-wrappers.hpp"
 #include "remote-text.hpp"
+#include <QTextCursor>
 #include <util/util.hpp>
 #include <util/platform.h>
 #include <platform.hpp>
 #include <json11.hpp>
 
 using namespace json11;
+
+static QString OBSPTPresentHeader()
+{
+	const QString locale = QString::fromUtf8(App()->GetLocale());
+	const char *url = locale.startsWith("zh", Qt::CaseInsensitive)
+			  ? "https://space.bilibili.com/1049515077"
+			  : "https://github.com/Sakyvo";
+
+	return QStringLiteral(
+		       "<p style='margin:0;'>"
+		       "<a href='%1' style='text-decoration:none;'>"
+		       "<span style='color:#000080;font-size:18px;font-weight:600;'>Sakyvo</span> "
+		       "<span style='color:#8B0000;font-size:18px;font-weight:600;'>Present</span>"
+		       "</a></p>"
+		       "<hr style='color:#666666;margin-top:12px;margin-bottom:20px;' />")
+		.arg(QString::fromUtf8(url));
+}
+
+static void SetAuthorsText(QTextBrowser *browser, const QString &text)
+{
+	browser->setPlainText(text);
+	QTextCursor cursor(browser->document());
+	cursor.movePosition(QTextCursor::Start);
+	cursor.insertHtml(OBSPTPresentHeader());
+	cursor.insertBlock();
+}
 
 OBSAbout::OBSAbout(QWidget *parent) : QDialog(parent), ui(new Ui::OBSAbout)
 {
@@ -35,13 +63,13 @@ OBSAbout::OBSAbout(QWidget *parent) : QDialog(parent), ui(new Ui::OBSAbout)
 
 	ui->contribute->setText(QTStr("About.Contribute"));
 	ui->donate->setText(
-		"&nbsp;&nbsp;<a href='https://obsproject.com/contribute'>" +
+		"&nbsp;&nbsp;<a href='https://github.com/Sakyvo/OBS-PT/issues'>" +
 		QTStr("About.Donate") + "</a>");
 	ui->donate->setTextInteractionFlags(Qt::TextBrowserInteraction);
 	ui->donate->setOpenExternalLinks(true);
 
 	ui->getInvolved->setText(
-		"&nbsp;&nbsp;<a href='https://github.com/obsproject/obs-studio/blob/master/CONTRIBUTING.rst'>" +
+		"&nbsp;&nbsp;<a href='https://github.com/Sakyvo/OBS-PT/pulls'>" +
 		QTStr("About.GetInvolved") + "</a>");
 	ui->getInvolved->setTextInteractionFlags(Qt::TextBrowserInteraction);
 	ui->getInvolved->setOpenExternalLinks(true);
@@ -90,13 +118,15 @@ void OBSAbout::ShowAbout()
 {
 	OBSBasic *main = OBSBasic::Get();
 
-	if (main->patronJson.empty())
+	QString text = OBSPTPresentHeader();
+	if (main->patronJson.empty()) {
+		ui->textBrowser->setHtml(text);
 		return;
+	}
 
 	std::string error;
 	Json json = Json::parse(main->patronJson, error);
 	const Json::array &patrons = json.array_items();
-	QString text;
 
 	text += "<h1>Top Patreon contributors:</h1>";
 	text += "<p style=\"font-size:16px;\">";
@@ -138,20 +168,20 @@ void OBSAbout::ShowAuthors()
 		Go to: https://github.com/obsproject/obs-studio/blob/master/AUTHORS";
 
 	if (!GetDataFilePath("authors/AUTHORS", path)) {
-		ui->textBrowser->setPlainText(error);
+		SetAuthorsText(ui->textBrowser, error);
 		return;
 	}
 
-	ui->textBrowser->setPlainText(QString::fromStdString(path));
+	SetAuthorsText(ui->textBrowser, QString::fromStdString(path));
 
 	BPtr<char> text = os_quick_read_utf8_file(path.c_str());
 
 	if (!text || !*text) {
-		ui->textBrowser->setPlainText(error);
+		SetAuthorsText(ui->textBrowser, error);
 		return;
 	}
 
-	ui->textBrowser->setPlainText(QT_UTF8(text));
+	SetAuthorsText(ui->textBrowser, QT_UTF8(text));
 }
 
 void OBSAbout::ShowLicense()

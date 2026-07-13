@@ -11,7 +11,7 @@ ManifestDPIAware true
 
 Name "${APP_NAME} ${APP_VERSION}"
 OutFile "..\..\build-v143\_pkg\${INSTALLER_NAME}"
-InstallDir "C:\OBS-PT"
+InstallDir ""
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 CRCCheck force
@@ -72,11 +72,18 @@ Function .onInit
 	StrCpy $ConfigBackupCreated 0
 	StrCpy $ConfigBackupDir ""
 
-	${If} $INSTDIR != "C:\OBS-PT"
+	${If} $INSTDIR != ""
 		Return
 	${EndIf}
 
-	StrCpy $INSTDIR ""
+	ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "InstallLocation"
+	${If} $0 != ""
+		IfFileExists "$0\${EXE_PATH}" 0 select_new_install_dir
+		StrCpy $INSTDIR "$0"
+		Return
+	${EndIf}
+
+select_new_install_dir:
 	${GetDrives} "HDD" "PickDefaultDrive"
 	${If} $INSTDIR == ""
 		StrCpy $INSTDIR "C:\OBS-PT"
@@ -125,6 +132,36 @@ FunctionEnd
 Function LaunchOBS
 	SetOutPath "$INSTDIR\bin\64bit"
 	Exec '"$INSTDIR\${EXE_PATH}"'
+FunctionEnd
+
+Function IsOBSRunning
+	nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "if (Get-Process -Name OBS-PT -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"'
+	Pop $0
+	Pop $1
+
+	${If} $0 == 0
+		Push 1
+	${ElseIf} $0 == 1
+		Push 0
+	${Else}
+		DetailPrint "OBS-PT process detection failed: $0 $1"
+		Push 2
+	${EndIf}
+FunctionEnd
+
+Function RequireOBSClosed
+require_obs_closed_retry:
+	Call IsOBSRunning
+	Pop $0
+	${If} $0 == 0
+		Return
+	${ElseIf} $0 == 1
+		MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "OBS-PT is still running.$\r$\n$\r$\nClose OBS-PT normally before continuing setup. Setup has not installed or replaced any files." IDRETRY require_obs_closed_retry
+		Quit
+	${Else}
+		MessageBox MB_RETRYCANCEL|MB_ICONSTOP "Setup could not determine whether OBS-PT is running.$\r$\n$\r$\nSetup will not install or replace any files. Click Retry to check again, or Cancel to exit." IDRETRY require_obs_closed_retry
+		Quit
+	${EndIf}
 FunctionEnd
 
 Function ReserveConfigBackupDir
@@ -192,6 +229,7 @@ finalize_existing_config_done:
 FunctionEnd
 
 Section "OBS-PT" SecMain
+	Call RequireOBSClosed
 	Call PrepareExistingConfig
 
 	SetOverwrite on

@@ -369,7 +369,7 @@ OBSBasicSettings::OBSBasicSettings(QWidget *parent)
 
 	ui->setupUi(this);
 
-#if defined(_WIN32) || defined(__APPLE__)
+#if !defined(_WIN32)
 	ui->enableAutoUpdates->setVisible(false);
 	ui->enableAutoUpdates->setEnabled(false);
 #endif
@@ -1231,7 +1231,7 @@ void OBSBasicSettings::LoadGeneralSettings()
 	LoadLanguageList();
 	LoadThemeList();
 
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(_WIN32)
 	bool enableAutoUpdates = config_get_bool(GetGlobalConfig(), "General",
 						 "EnableAutoUpdates");
 	ui->enableAutoUpdates->setChecked(enableAutoUpdates);
@@ -2995,7 +2995,7 @@ void OBSBasicSettings::SaveGeneralSettings()
 		App()->SetTheme(themeData.toUtf8().constData());
 	}
 
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(_WIN32)
 	if (WidgetChanged(ui->enableAutoUpdates))
 		config_set_bool(GetGlobalConfig(), "General",
 				"EnableAutoUpdates",

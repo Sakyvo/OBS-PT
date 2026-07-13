@@ -71,16 +71,16 @@ p, li { white-space: pre-wrap; }
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="no">
+      <widget class="QPushButton" name="skip">
        <property name="text">
-        <string>Updater.RemindMeLater</string>
+        <string>Updater.Skip</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="skip">
+      <widget class="QPushButton" name="no">
        <property name="text">
-        <string>Updater.Skip</string>
+        <string>Updater.Ignore</string>
        </property>
       </widget>
      </item>

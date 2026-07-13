@@ -419,7 +419,7 @@ bool OBSApp::InitGlobalConfigDefaults()
 	config_set_default_string(globalConfig, "General", "ProcessPriority",
 				  "Normal");
 	config_set_default_bool(globalConfig, "General", "EnableAutoUpdates",
-				false);
+				true);
 
 	config_set_default_bool(globalConfig, "General", "ConfirmOnExit", true);
 

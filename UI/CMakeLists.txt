@@ -109,11 +109,15 @@ if(WIN32)
 
 	set(obs_PLATFORM_SOURCES
 		platform-windows.cpp
+		win-update/obspt-update.cpp
+		win-update/obspt-update-model.cpp
 		win-update/update-window.cpp
 		win-update/win-update.cpp
 		win-update/win-update-helpers.cpp
 		${obs-studio_BINARY_DIR}/obs.rc)
 	set(obs_PLATFORM_HEADERS
+		win-update/obspt-update.hpp
+		win-update/obspt-update-model.hpp
 		win-update/update-window.hpp
 		win-update/win-update.hpp
 		win-update/win-update-helpers.hpp)
@@ -475,6 +479,15 @@ target_link_libraries(obs
 	${FFMPEG_LIBRARIES}
 	${LIBCURL_LIBRARIES}
 	${obs_PLATFORM_LIBRARIES})
+
+if(WIN32 AND BUILD_TESTS)
+	add_executable(obspt-update-model-test
+		win-update/obspt-update-model-test.cpp
+		win-update/obspt-update-model.cpp)
+	target_link_libraries(obspt-update-model-test Qt5::Core)
+	set_target_properties(obspt-update-model-test PROPERTIES
+		FOLDER "tests and examples")
+endif()
 
 set_target_properties(obs PROPERTIES FOLDER "frontend")
 

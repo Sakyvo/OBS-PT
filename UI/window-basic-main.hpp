@@ -54,6 +54,7 @@ class QMessageBox;
 class QListWidgetItem;
 class VolControl;
 class OBSBasicStats;
+class OBSUpdateManager;
 
 #include "ui_OBSBasic.h"
 #include "ui_ColorSelect.h"
@@ -229,9 +230,9 @@ private:
 	bool closing = false;
 	QScopedPointer<QThread> devicePropertiesThread;
 	QScopedPointer<QThread> whatsNewInitThread;
-	QScopedPointer<QThread> updateCheckThread;
 	QScopedPointer<QThread> introCheckThread;
 	QScopedPointer<QThread> logUploadThread;
+	OBSUpdateManager *updateManager = nullptr;
 
 	QPointer<OBSBasicInteraction> interaction;
 	QPointer<OBSBasicProperties> properties;
@@ -1079,8 +1080,6 @@ private slots:
 	void logUploadFinished(const QString &text, const QString &error);
 	void crashUploadFinished(const QString &text, const QString &error);
 	void openLogDialog(const QString &text, const bool crash);
-
-	void updateCheckFinished();
 
 	void AddSourceFromAction();
 
