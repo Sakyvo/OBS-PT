@@ -55,7 +55,7 @@ _Avoid_: 动态模糊（"动态模糊"是渲染效果名，"帧混合"是实现�
 _Avoid_: 上传码率、平台压缩（这些是过程描述，"天花板"强调它对源端决策的反向约束作用）
 
 **High-FPS Source / 高帧率来源**:
-OBS-PT 默认假设的来源类型——Minecraft Java 版 1.7.10 / 1.8.9 客户端（含 Vanilla、Lunar Client、Badlion Client、PvPLounge 等 PotPvP 圈常见客户端），集显即可稳定输出数千 fps。这类来源不是"未来要支持的目标"，而是 OBS-PT 默认值（480/1 fps、CQP 20/26（按分辨率）匹配 Distribution Ceiling、NVENC p1 / `tune=hq` / `multipass=disabled` / `bf=0` 让编码器跟得上 480fps）设定的**前提假设**。
+OBS-PT 默认假设的来源类型——Minecraft Java 版 1.7.10 / 1.8.9 客户端（含 Vanilla、Lunar Client、Badlion Client、PvPLounge 等 PotPvP 圈常见客户端），集显即可稳定输出数千 fps。这类来源不是"未来要支持的目标"，而是 OBS-PT 默认值（480/1 fps、CQP 20/27（按分辨率）匹配 Distribution Ceiling、NVENC p1 / `tune=hq` / `multipass=disabled` / `bf=0` 让编码器跟得上 480fps）设定的**前提假设**。
 _Avoid_: 游戏源、Game Capture（这些是 OBS 的输入类型名）、轻量级游戏（早期讨论用语，过于宽泛）
 
 ## Flagged ambiguities
@@ -74,4 +74,4 @@ _Avoid_: 游戏源、Game Capture（这些是 OBS 的输入类型名）、轻量
 >
 > **开发者**：那 Global Config 呢？里面记录了"当前 Profile 名"对吧？
 >
-> **领域专家**：对，Global Config 在 `<User Data Root>/global.ini`，存储跨 Profile 共享的状态，包括当前激活的 Profile 名与 Scene Collection 名。如果 Global Config 不存在，OBS-PT 会用内置的 PotPvP 录制默认值（480/1 Fractional FPS、跟随显示器分辨率、CQP 20/26 按分辨率匹配 Distribution Ceiling，编码器/颜色格式按硬件自适应）生成一份新的，并自动创建一个名为 `PotPvP` 的初始 Profile。
+> **领域专家**：对，Global Config 在 `<User Data Root>/global.ini`，存储跨 Profile 共享的状态，包括当前激活的 Profile 名与 Scene Collection 名。如果 Global Config 不存在，OBS-PT 会用内置的 PotPvP 录制默认值（480/1 Fractional FPS、跟随显示器分辨率、CQP 20/27 按分辨率匹配 Distribution Ceiling，编码器/颜色格式按硬件自适应）生成一份新的，并自动创建一个名为 `PotPvP` 的初始 Profile。

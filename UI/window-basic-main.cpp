@@ -1801,19 +1801,8 @@ void OBSBasic::OBSInit()
 	if (!profile_name || !*profile_name)
 		profile_name = "PotPvP";
 	bool firstRunSoftware = false;
-	if (run_first_run_bootstrap_if_needed(profile_name, basicConfig,
-					      &firstRunSoftware)) {
-		QTimer::singleShot(0, this, [this, firstRunSoftware] {
-			OBSWelcome *welcome =
-				new OBSWelcome(this, firstRunSoftware);
-			welcome->setAttribute(Qt::WA_DeleteOnClose, true);
-			connect(welcome, &QDialog::finished, this,
-				[](int) { mark_first_run_completed(); });
-			welcome->show();
-			welcome->raise();
-			welcome->activateWindow();
-		});
-	}
+	bool showFirstRunWelcome = run_first_run_bootstrap_if_needed(
+		profile_name, basicConfig, &firstRunSoftware);
 
 #ifdef BROWSER_AVAILABLE
 	cef = obs_browser_init_panel();
@@ -2098,6 +2087,22 @@ void OBSBasic::OBSInit()
 	OnFirstLoad();
 
 	activateWindow();
+
+	if (showFirstRunWelcome) {
+		QTimer::singleShot(500, this, [this, firstRunSoftware] {
+			if (closing)
+				return;
+
+			OBSWelcome *welcome =
+				new OBSWelcome(this, firstRunSoftware);
+			welcome->setAttribute(Qt::WA_DeleteOnClose, true);
+			connect(welcome, &QDialog::finished, this,
+				[](int) { mark_first_run_completed(); });
+			welcome->show();
+			welcome->raise();
+			welcome->activateWindow();
+		});
+	}
 }
 
 void OBSBasic::OnFirstLoad()

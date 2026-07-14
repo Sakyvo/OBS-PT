@@ -581,7 +581,7 @@ static int recording_quality_value(const char *encoder_id, int base_cy)
 	if (strcmp(encoder_id, "amd_amf_h264") == 0)
 		return below_1080 ? 22 : 27;
 
-	return below_1080 ? 20 : 26;
+	return below_1080 ? 20 : 27;
 }
 
 int apply_encoder_to_profile(const char *profile_name, const char *encoder_id,
