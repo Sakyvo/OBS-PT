@@ -2,7 +2,7 @@
 
 # OBS-PT
 
-> **OBS Premium Tuning for PotPvP**
+> **The OBS Premium Tuning for PotPvP**
 
 OBS-PT is an independent OBS Studio fork for high-frame-rate Minecraft Java 1.7.10 / 1.8.9 PotPvP recording workflows. It is based on [OBS Studio 27.2.4](https://github.com/obsproject/obs-studio/releases/tag/27.2.4), the final Qt 5 release, and selectively ports newer recording features that benefit PotPvP players.
 
