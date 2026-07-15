@@ -20,7 +20,7 @@ OBS-PT is an independent OBS Studio fork for high-frame-rate Minecraft Java 1.7.
 
 - **A streamlined, fully portable installation.** OBS-PT keeps all user data under its install root instead of `%APPDATA%`, and can coexist with the official OBS Studio build.
 - **Pre-tuned for high-FPS PotPvP recording.** The default Profile uses 480 FPS and adapts to the primary display and available hardware encoder, providing a practical starting point without rebuilding an OBS configuration from scratch.
-- **The OBS 28.0 P1-P7 preset system.** P1 is the default maximum-performance path and leaves more headroom for high-FPS recording than the legacy “Max Performance” preset.
+- **The OBS 28.1 P1-P7 preset system.** P1 is the default maximum-performance path and leaves more headroom for high-FPS recording than the legacy “Max Performance” preset.
 - **Hybrid MP4 from OBS 30.2.** Record directly to `.mp4` while greatly reducing the risk that a crash, power loss, or forced shutdown makes the entire recording unusable.
 - **Hardware-adaptive NVIDIA and AMD defaults.** OBS-PT selects an available encoder and writes a matching PotPvP recording configuration.
 
