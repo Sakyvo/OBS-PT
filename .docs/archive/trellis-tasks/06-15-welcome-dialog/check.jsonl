@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/06-15-welcome-dialog/prd.md", "reason": "AC 是 check 判据：首页隐藏 Prev、末页 End 黑色禁用、X 可关、链接开浏览器、About 打开会关 About、首启单次。页文案以 prd 原文为准。"}
+{"file": ".trellis/tasks/06-15-welcome-dialog/design.md", "reason": "校验契约：导航状态机、非模态 show()+WA_DeleteOnClose、首启返回值改动、About 链接复用且保留 Authors/License、CMake 3 处与 ui_OBSWelcome.h 生成、locale 键双语齐全。"}
+{"file": ".trellis/tasks/06-15-welcome-dialog/implement.md", "reason": "Step 4 自审门来源；逐条核对（无残留 ShowFirstRunRecommendationsDialog、键双语齐、Prev/End/X 行为、CMake 登记）。"}
+{"file": ".trellis/spec/obspt-bootstrap.md", "reason": "校验首启改动未破坏既有契约（FirstRunCompleted 仍单次门控、配置写入与 mark_first_run_completed 保留），且实施后 spec 同步。"}
+{"file": "CONTEXT.md", "reason": "校验弹窗中英文案术语与项目词汇表一致。"}

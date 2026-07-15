@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/05-25-step1-portable-bootstrap/prd.md", "reason": "Step 1 任务的完整需求、用户故事、AC、模块拆分（M1-M7）、测试矩阵。所有实施动作的最终依据。"}
+{"file": ".trellis/tasks/05-25-step1-portable-bootstrap/design.md", "reason": "技术设计：模块依赖图、接口契约（M1/M2/M3/M5 函数签名）、启动序列数据流、关键 tradeoffs、兼容性边界。实施时遇到边界问题先查本文件。"}
+{"file": "CONTEXT.md", "reason": "项目术语统一来源。Install Root / User Data Root / Profile / Scene Collection / Global Config / Portable Mode / Fractional FPS 等核心词的精确定义；避免改写时用错术语污染代码与文案。"}
+{"file": "docs/adr/0001-forced-portable-mode.md", "reason": "强制便携化决策的原始记录。说明为什么删除 --portable CLI 与 marker file，为什么不要回落到 APPDATA / 盘根，为什么写探测失败必须 exit 而非降级。"}
+{"file": "docs/adr/0002-positioning-obs-for-potpvp.md", "reason": "项目定位决策。说明为什么默认值是 CQP 25 + NVENC p1 + tune=ll + bf=0 + 360fps，为什么 HEVC 不预置——任何后续 PR 想改默认值都应先看本 ADR。"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "M1 实现位置（libobs/util 让 UI + 插件 SDK 透明走同路径）跨 3 层；M4 改写 Profile 文件涉及 JSON/INI 解析 + Qt UI 触发，是典型跨层场景。"}

@@ -5,12 +5,12 @@ ManifestDPIAware true
 !define APP_VERSION "1.0.0"
 !define COMPANY_NAME "OBS-PT"
 !define INSTALLER_NAME "OBS-PT-${APP_VERSION}-Installer.exe"
-!define SOURCE_DIR "..\..\build-v143\_pkg\OBS-PT"
+!define SOURCE_DIR "..\..\.target\_pkg\OBS-PT"
 !define EXE_PATH "bin\64bit\OBS-PT.exe"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\OBS-PT"
 
 Name "${APP_NAME} ${APP_VERSION}"
-OutFile "..\..\build-v143\_pkg\${INSTALLER_NAME}"
+OutFile "..\..\.target\_pkg\${INSTALLER_NAME}"
 InstallDir ""
 RequestExecutionLevel user
 SetCompressor /SOLID lzma

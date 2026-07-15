@@ -10,8 +10,6 @@
 /.codex/
 /.github/
 /.trellis/
-/AGENTS.md
-/CLAUDE.md
 /docs/
 /dist-test/
 /deps2019/
@@ -21,7 +19,7 @@
 /build/
 /build32/
 /build64/
-/build-v143/
+/.target/
 /release/
 /release32/
 /release64/

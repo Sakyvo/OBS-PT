@@ -1,0 +1,9 @@
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/prd.md", "reason": "AC 是 check 的最终判据：480fps@显示器分辨率、base==output、recordEncoder.json 只含该编码器有效键、version-bump 后现有测试者重新适配、分辨率当次生效。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/design.md", "reason": "校验不变量：分辨率/fps 必须早期写（先于 ResetVideo 行1734）、编码器/CQP 晚期写、早期写须 repair 门控、apply_encoder_to_profile 须建全新 obs_data（无残留键）、不封顶 >1080p、base==output、CQP 边界 <1080→20 否则 26。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/implement.md", "reason": "Step 4 自审门与各步 gate 的来源；逐条核对（含编码器键无残留、早期写门控、签名改动两端同步）。"}
+{"file": ".trellis/spec/obspt-bootstrap.md", "reason": "校验改动是否符合既有引导契约（相位职责、首启/repair 触发条件、Profile 改写不越权动无关字段），以及实施后 spec 是否同步更新。"}
+{"file": "docs/adr/0002-positioning-obs-for-potpvp.md", "reason": "校验默认值变更未越界：除本任务明确演进的 fps(480) 与按分辨率 CQP(20/26) 外，jim_nvenc 的 preset/preset2/tune/bf/psycho_aq 应仍符合本 ADR，未被私自改动；不应新增 HEVC 或改动优先级表。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/research/encoder-qsv.md", "reason": "校验 obs_qsv11 分支键名/取值与引用的 obs-qsv11.c 行号一致（qpi/qpp/qpb 而非单 qp，rate_control=CQP）。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/research/encoder-x264.md", "reason": "校验 obs_x264 分支用 CRF+crf、无任何 NVENC 残留键（cqp/preset2/tune:ll/multipass/psycho_aq）、tune 留空。"}
+{"file": ".trellis/tasks/06-05-obsredux-480fps-default-profile/research/encoder-amf.md", "reason": "校验 amd_amf_h264 分支用 bare 键（RateControlMethod/QP.IFrame…）非 dotted AMF.H264.*，与 UpdateRecordingSettings_amd_cqp 一致。"}
+{"file": "CONTEXT.md", "reason": "校验日志/文案/注释术语与项目词汇表一致，未混用被 Avoid 的措辞。"}
