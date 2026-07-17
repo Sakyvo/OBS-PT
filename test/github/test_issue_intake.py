@@ -1,9 +1,8 @@
-from pathlib import Path
 import base64
 import json
 import os
-import subprocess
 import unittest
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -13,6 +12,40 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_DIR = ROOT / ".github" / "ISSUE_TEMPLATE"
 REPOSITORY = "Sakyvo/OBS-PT"
+FORMS = [
+    ("01-bug.yml", "错误报告 / Bug report", "[bug] ", ["bug", "triage"]),
+    (
+        "02-enhancement.yml",
+        "功能建议 / Enhancement",
+        "[enhancement] ",
+        ["enhancement", "triage"],
+    ),
+    ("03-help.yml", "使用求助 / Help", "[help] ", ["help", "triage"]),
+    (
+        "04-discussion.yml",
+        "开放讨论 / Discussion",
+        "[discussion] ",
+        ["discussion", "triage"],
+    ),
+]
+SYSTEM_FIELDS = [
+    ("obspt-version", "OBS-PT 版本 / OBS-PT version"),
+    ("operating-system", "操作系统 / Operating system"),
+    ("cpu", "CPU"),
+    ("gpu-driver", "GPU 与驱动版本 / GPU and driver version"),
+    ("memory", "内存 / Memory"),
+    ("recording-drive", "录像磁盘 / Recording drive"),
+]
+COMMON_CONFIRMATIONS = [
+    "我已搜索现有 Issue，确认没有相同内容 / "
+    "I searched existing issues and found no duplicate.",
+    "我确认事项针对 OBS-PT，而非上游 OBS Studio 或无关第三方软件 / "
+    "I confirm this concerns OBS-PT, not upstream OBS Studio or unrelated "
+    "third-party software.",
+    "我确认填写的信息准确 / I confirm the information is accurate.",
+    "我已检查公开上传的截图、日志和路径是否含敏感信息 / "
+    "I checked public screenshots, logs, and paths for sensitive information.",
+]
 EXPECTED_LABELS = {
     "bug": ("d73a4a", "功能异常 / Something is not working"),
     "enhancement": ("a2eeef", "功能改进或新增请求 / Improvement or feature request"),
@@ -31,75 +64,70 @@ EXPECTED_LABELS = {
 }
 
 
+def load_form(filename):
+    return yaml.safe_load((TEMPLATE_DIR / filename).read_text("utf-8"))
+
+
+def fields(filename):
+    return [item for item in load_form(filename)["body"] if item["type"] != "markdown"]
+
+
+def field_contract(filename, start, stop):
+    return [
+        (
+            item.get("id"),
+            item.get("attributes", {}).get("label"),
+            item.get("type"),
+            item.get("validations", {}).get("required", False),
+        )
+        for item in fields(filename)[start:stop]
+    ]
+
+
+def github_json(url):
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "OBS-PT-issue-intake-test",
+        },
+    )
+    with urlopen(request, timeout=30) as response:
+        return json.load(response)
+
+
 class LocalIssueIntakeTests(unittest.TestCase):
     def test_contributors_get_four_ordered_forms_without_blank_issues(self):
-        expected = [
-            ("01-bug.yml", "错误报告 / Bug report", "[bug] ", ["bug", "triage"]),
-            (
-                "02-enhancement.yml",
-                "功能建议 / Enhancement",
-                "[enhancement] ",
-                ["enhancement", "triage"],
-            ),
-            ("03-help.yml", "使用求助 / Help", "[help] ", ["help", "triage"]),
-            (
-                "04-discussion.yml",
-                "开放讨论 / Discussion",
-                "[discussion] ",
-                ["discussion", "triage"],
-            ),
-        ]
-
-        config = yaml.safe_load((TEMPLATE_DIR / "config.yml").read_text("utf-8"))
-        self.assertEqual(
-            config,
-            {"blank_issues_enabled": False, "contact_links": []},
-        )
-
-        actual = []
-        for filename, _, _, _ in expected:
-            form = yaml.safe_load((TEMPLATE_DIR / filename).read_text("utf-8"))
-            self.assertIsInstance(form.get("description"), str)
-            self.assertTrue(form["description"].strip())
-            self.assertTrue(form.get("body"))
-            actual.append(
-                (filename, form.get("name"), form.get("title"), form.get("labels"))
+        actual_forms = []
+        for filename, _, _, _ in FORMS:
+            form = load_form(filename)
+            actual_forms.append(
+                (
+                    filename,
+                    form.get("name"),
+                    form.get("title"),
+                    form.get("labels"),
+                    bool(form.get("description", "").strip() and form.get("body")),
+                )
             )
-
-        self.assertEqual(actual, expected)
+        self.assertEqual(
+            {
+                "config": load_form("config.yml"),
+                "forms": actual_forms,
+            },
+            {
+                "config": {"blank_issues_enabled": False, "contact_links": []},
+                "forms": [(*form, True) for form in FORMS],
+            },
+        )
 
     def test_every_form_requires_the_six_system_information_fields(self):
         expected = [
-            ("obspt-version", "OBS-PT 版本 / OBS-PT version"),
-            ("operating-system", "操作系统 / Operating system"),
-            ("cpu", "CPU"),
-            ("gpu-driver", "GPU 与驱动版本 / GPU and driver version"),
-            ("memory", "内存 / Memory"),
-            ("recording-drive", "录像磁盘 / Recording drive"),
+            (field_id, label, "input", True) for field_id, label in SYSTEM_FIELDS
         ]
-
-        for filename in (
-            "01-bug.yml",
-            "02-enhancement.yml",
-            "03-help.yml",
-            "04-discussion.yml",
-        ):
+        for filename, _, _, _ in FORMS:
             with self.subTest(filename=filename):
-                form = yaml.safe_load((TEMPLATE_DIR / filename).read_text("utf-8"))
-                fields = [item for item in form["body"] if item["type"] != "markdown"]
-                actual = [
-                    (
-                        item.get("id"),
-                        item.get("attributes", {}).get("label"),
-                        item.get("type"),
-                        item.get("validations", {}).get("required"),
-                    )
-                    for item in fields[:6]
-                ]
-                self.assertEqual(
-                    actual,
-                    [(field_id, label, "input", True) for field_id, label in expected],
-                )
+                self.assertEqual(field_contract(filename, 0, 6), expected)
 
     def test_bug_reports_require_reproduction_and_diagnostic_responses(self):
         expected = [
@@ -112,31 +140,20 @@ class LocalIssueIntakeTests(unittest.TestCase):
             ),
             (
                 "task-manager-usage",
-                "任务管理器 CPU、GPU 占用截图或原因 / Task Manager CPU/GPU screenshot or reason",
+                "任务管理器 CPU、GPU 占用截图或原因 / "
+                "Task Manager CPU/GPU screenshot or reason",
             ),
             ("log-or-reason", "日志或无法提供的原因 / Log or reason unavailable"),
         ]
-        form = yaml.safe_load((TEMPLATE_DIR / "01-bug.yml").read_text("utf-8"))
-        fields = [item for item in form["body"] if item["type"] != "markdown"]
-        actual = [
-            (
-                item.get("id"),
-                item.get("attributes", {}).get("label"),
-                item.get("type"),
-                item.get("validations", {}).get("required"),
-            )
-            for item in fields[6:12]
-        ]
         self.assertEqual(
-            actual,
+            field_contract("01-bug.yml", 6, 12),
             [(field_id, label, "textarea", True) for field_id, label in expected],
         )
 
     def test_bug_diagnostic_fields_explain_attachment_or_reason_options(self):
-        form = yaml.safe_load((TEMPLATE_DIR / "01-bug.yml").read_text("utf-8"))
         descriptions = {
             item.get("id"): item.get("attributes", {}).get("description", "")
-            for item in form["body"]
+            for item in load_form("01-bug.yml")["body"]
         }
         required_fragments = {
             "obs-statistics": (
@@ -198,27 +215,10 @@ class LocalIssueIntakeTests(unittest.TestCase):
                 "替代方案或变通方法 / Alternatives or workarounds",
                 False,
             ),
-            (
-                "supporting-material",
-                "补充材料 / Supporting material",
-                False,
-            ),
-        ]
-        form = yaml.safe_load(
-            (TEMPLATE_DIR / "02-enhancement.yml").read_text("utf-8")
-        )
-        fields = [item for item in form["body"] if item["type"] != "markdown"]
-        actual = [
-            (
-                item.get("id"),
-                item.get("attributes", {}).get("label"),
-                item.get("type"),
-                item.get("validations", {}).get("required", False),
-            )
-            for item in fields[6:11]
+            ("supporting-material", "补充材料 / Supporting material", False),
         ]
         self.assertEqual(
-            actual,
+            field_contract("02-enhancement.yml", 6, 11),
             [
                 (field_id, label, "textarea", required)
                 for field_id, label, required in expected
@@ -232,23 +232,13 @@ class LocalIssueIntakeTests(unittest.TestCase):
             ("attempted-methods", "已尝试的方法 / What have you tried?", True),
             (
                 "supporting-material",
-                "相关配置、截图或日志 / Relevant configuration, screenshots, or logs",
+                "相关配置、截图或日志 / "
+                "Relevant configuration, screenshots, or logs",
                 False,
             ),
         ]
-        form = yaml.safe_load((TEMPLATE_DIR / "03-help.yml").read_text("utf-8"))
-        fields = [item for item in form["body"] if item["type"] != "markdown"]
-        actual = [
-            (
-                item.get("id"),
-                item.get("attributes", {}).get("label"),
-                item.get("type"),
-                item.get("validations", {}).get("required", False),
-            )
-            for item in fields[6:10]
-        ]
         self.assertEqual(
-            actual,
+            field_contract("03-help.yml", 6, 10),
             [
                 (field_id, label, "textarea", required)
                 for field_id, label, required in expected
@@ -260,10 +250,15 @@ class LocalIssueIntakeTests(unittest.TestCase):
             ("topic", "讨论主题 / Discussion topic", True),
             (
                 "background",
-                "背景及与 OBS-PT、PotPvP 录制的关系 / Background and relation to OBS-PT and PotPvP recording",
+                "背景及与 OBS-PT、PotPvP 录制的关系 / "
+                "Background and relation to OBS-PT and PotPvP recording",
                 True,
             ),
-            ("current-position", "当前观点或初步方案 / Current position or proposal", True),
+            (
+                "current-position",
+                "当前观点或初步方案 / Current position or proposal",
+                True,
+            ),
             (
                 "desired-conclusion",
                 "希望解决的问题或达成的结论 / Desired question or conclusion",
@@ -271,25 +266,13 @@ class LocalIssueIntakeTests(unittest.TestCase):
             ),
             (
                 "alternatives-references",
-                "其他方案、权衡或参考资料 / Alternatives, tradeoffs, or references",
+                "其他方案、权衡或参考资料 / "
+                "Alternatives, tradeoffs, or references",
                 False,
             ),
         ]
-        form = yaml.safe_load(
-            (TEMPLATE_DIR / "04-discussion.yml").read_text("utf-8")
-        )
-        fields = [item for item in form["body"] if item["type"] != "markdown"]
-        actual = [
-            (
-                item.get("id"),
-                item.get("attributes", {}).get("label"),
-                item.get("type"),
-                item.get("validations", {}).get("required", False),
-            )
-            for item in fields[6:11]
-        ]
         self.assertEqual(
-            actual,
+            field_contract("04-discussion.yml", 6, 11),
             [
                 (field_id, label, "textarea", required)
                 for field_id, label, required in expected
@@ -297,32 +280,29 @@ class LocalIssueIntakeTests(unittest.TestCase):
         )
 
     def test_every_form_requires_the_submission_confirmations(self):
-        common = [
-            "我已搜索现有 Issue，确认没有相同内容 / I searched existing issues and found no duplicate.",
-            "我确认事项针对 OBS-PT，而非上游 OBS Studio 或无关第三方软件 / I confirm this concerns OBS-PT, not upstream OBS Studio or unrelated third-party software.",
-            "我确认填写的信息准确 / I confirm the information is accurate.",
-            "我已检查公开上传的截图、日志和路径是否含敏感信息 / I checked public screenshots, logs, and paths for sensitive information.",
-        ]
         expected_by_file = {
-            "01-bug.yml": common
+            "01-bug.yml": COMMON_CONFIRMATIONS
             + [
-                "我已尽可能在当前 OBS-PT 版本中复现问题 / I reproduced this on the current OBS-PT version where possible."
+                "我已尽可能在当前 OBS-PT 版本中复现问题 / "
+                "I reproduced this on the current OBS-PT version where possible."
             ],
-            "02-enhancement.yml": common,
-            "03-help.yml": common,
-            "04-discussion.yml": common,
+            "02-enhancement.yml": COMMON_CONFIRMATIONS,
+            "03-help.yml": COMMON_CONFIRMATIONS,
+            "04-discussion.yml": COMMON_CONFIRMATIONS,
         }
-
         for filename, expected in expected_by_file.items():
             with self.subTest(filename=filename):
-                form = yaml.safe_load((TEMPLATE_DIR / filename).read_text("utf-8"))
                 checklists = [
-                    item for item in form["body"] if item["type"] == "checkboxes"
+                    item
+                    for item in load_form(filename)["body"]
+                    if item["type"] == "checkboxes"
                 ]
-                actual = [
-                    (option.get("label"), option.get("required"))
-                    for option in checklists[0].get("attributes", {}).get("options", [])
-                ] if len(checklists) == 1 else []
+                actual = []
+                if len(checklists) == 1:
+                    actual = [
+                        (option.get("label"), option.get("required"))
+                        for option in checklists[0]["attributes"]["options"]
+                    ]
                 self.assertEqual(actual, [(label, True) for label in expected])
 
 
@@ -332,77 +312,41 @@ class LocalIssueIntakeTests(unittest.TestCase):
 )
 class RemoteIssueIntakeTests(unittest.TestCase):
     def test_live_repository_has_exactly_the_agreed_label_taxonomy(self):
-        request = Request(
-            f"https://api.github.com/repos/{REPOSITORY}/labels?per_page=100",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "OBS-PT-issue-intake-test",
-            },
+        labels = github_json(
+            f"https://api.github.com/repos/{REPOSITORY}/labels?per_page=100"
         )
-        with urlopen(request, timeout=30) as response:
-            labels = json.load(response)
         actual = {
             label["name"]: (label["color"].lower(), label.get("description") or "")
             for label in labels
         }
         self.assertEqual(actual, EXPECTED_LABELS)
 
-    def test_default_branch_publishes_the_tested_forms_and_disables_blank_issues(self):
-        filenames = [
-            "config.yml",
-            "01-bug.yml",
-            "02-enhancement.yml",
-            "03-help.yml",
-            "04-discussion.yml",
-        ]
+    def test_default_branch_publishes_the_tested_forms_and_blank_issue_policy(self):
+        filenames = ["config.yml", *[form[0] for form in FORMS]]
         published = {}
         for filename in filenames:
-            request = Request(
+            url = (
                 f"https://api.github.com/repos/{REPOSITORY}/contents/"
-                f".github/ISSUE_TEMPLATE/{filename}?ref=master",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "User-Agent": "OBS-PT-issue-intake-test",
-                },
+                f".github/ISSUE_TEMPLATE/{filename}?ref=master"
             )
             try:
-                with urlopen(request, timeout=30) as response:
-                    payload = json.load(response)
+                payload = github_json(url)
                 published[filename] = base64.b64decode(payload["content"]).decode(
                     "utf-8"
                 )
             except HTTPError as error:
-                if error.code != 404:
-                    raise
-                error.close()
-                published[filename] = None
+                try:
+                    if error.code != 404:
+                        raise
+                    published[filename] = None
+                finally:
+                    error.close()
 
-        query = (
-            'query { repository(owner: "Sakyvo", name: "OBS-PT") '
-            "{ isBlankIssuesEnabled } }"
-        )
-        result = subprocess.run(
-            ["gh", "api", "graphql", "-f", f"query={query}"],
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-        blank_issues_enabled = json.loads(result.stdout)["data"]["repository"][
-            "isBlankIssuesEnabled"
-        ]
-        actual = {
-            "published_files": published,
-            "blank_issues_enabled": blank_issues_enabled,
-        }
         expected = {
-            "published_files": {
-                filename: (TEMPLATE_DIR / filename).read_text("utf-8")
-                for filename in filenames
-            },
-            "blank_issues_enabled": False,
+            filename: (TEMPLATE_DIR / filename).read_text("utf-8")
+            for filename in filenames
         }
-        self.assertEqual(actual, expected)
+        self.assertEqual(published, expected)
 
 
 if __name__ == "__main__":
