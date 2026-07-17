@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links: []
+
+# Maintainer state flow:
+# triage -> no state label (accepted backlog) -> wip -> closed
+# duplicate and wontfix replace other state labels and close the Issue.

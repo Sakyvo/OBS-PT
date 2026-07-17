@@ -1,0 +1,94 @@
+name: 功能建议 / Enhancement
+description: 建议改进或新增 OBS-PT 功能 / Suggest an OBS-PT improvement or feature
+title: "[enhancement] "
+labels:
+  - enhancement
+  - triage
+body:
+  - type: input
+    id: obspt-version
+    attributes:
+      label: OBS-PT 版本 / OBS-PT version
+      placeholder: "例如 / Example: 1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: 操作系统 / Operating system
+      placeholder: "例如 / Example: Windows 10 LTSC 2021"
+    validations:
+      required: true
+  - type: input
+    id: cpu
+    attributes:
+      label: CPU
+      placeholder: "例如 / Example: Intel Core i5-10400"
+    validations:
+      required: true
+  - type: input
+    id: gpu-driver
+    attributes:
+      label: GPU 与驱动版本 / GPU and driver version
+      placeholder: "例如 / Example: RTX 3060 (581.57 Studio)"
+    validations:
+      required: true
+  - type: input
+    id: memory
+    attributes:
+      label: 内存 / Memory
+      placeholder: "例如 / Example: DDR4 8 GB × 2, 2666 MHz"
+    validations:
+      required: true
+  - type: input
+    id: recording-drive
+    attributes:
+      label: 录像磁盘 / Recording drive
+      description: 请填写容量和介质类型 / Include capacity and media type
+      placeholder: "例如 / Example: 512 GB SSD"
+    validations:
+      required: true
+  - type: textarea
+    id: current-limitation
+    attributes:
+      label: 当前问题或限制 / Current problem or limitation
+    validations:
+      required: true
+  - type: textarea
+    id: desired-improvement
+    attributes:
+      label: 期望的改进及结果 / Desired improvement and outcome
+    validations:
+      required: true
+  - type: textarea
+    id: potpvp-use-case
+    attributes:
+      label: PotPvP 录制使用场景 / PotPvP recording use case
+      description: >-
+        请说明该改进如何服务 PotPvP 高帧录制工作流。 /
+        Explain how this improvement supports the PotPvP high-FPS recording
+        workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: workarounds
+    attributes:
+      label: 替代方案或变通方法 / Alternatives or workarounds
+  - type: textarea
+    id: supporting-material
+    attributes:
+      label: 补充材料 / Supporting material
+      description: 可上传截图、示例或其他资料 / Attach screenshots, examples, or other material
+  - type: checkboxes
+    id: submission-checklist
+    attributes:
+      label: 提交确认 / Submission checklist
+      options:
+        - label: 我已搜索现有 Issue，确认没有相同内容 / I searched existing issues and found no duplicate.
+          required: true
+        - label: 我确认事项针对 OBS-PT，而非上游 OBS Studio 或无关第三方软件 / I confirm this concerns OBS-PT, not upstream OBS Studio or unrelated third-party software.
+          required: true
+        - label: 我确认填写的信息准确 / I confirm the information is accurate.
+          required: true
+        - label: 我已检查公开上传的截图、日志和路径是否含敏感信息 / I checked public screenshots, logs, and paths for sensitive information.
+          required: true
