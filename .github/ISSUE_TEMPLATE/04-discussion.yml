@@ -1,0 +1,91 @@
+name: 开放讨论 / Discussion
+description: 发起与 OBS-PT 有关的开放讨论 / Start an open OBS-PT discussion
+title: "[discussion] "
+labels:
+  - discussion
+  - triage
+body:
+  - type: input
+    id: obspt-version
+    attributes:
+      label: OBS-PT 版本 / OBS-PT version
+      placeholder: "例如 / Example: 1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: 操作系统 / Operating system
+      placeholder: "例如 / Example: Windows 10 LTSC 2021"
+    validations:
+      required: true
+  - type: input
+    id: cpu
+    attributes:
+      label: CPU
+      placeholder: "例如 / Example: Intel Core i5-10400"
+    validations:
+      required: true
+  - type: input
+    id: gpu-driver
+    attributes:
+      label: GPU 与驱动版本 / GPU and driver version
+      placeholder: "例如 / Example: RTX 3060 (581.57 Studio)"
+    validations:
+      required: true
+  - type: input
+    id: memory
+    attributes:
+      label: 内存 / Memory
+      placeholder: "例如 / Example: DDR4 8 GB × 2, 2666 MHz"
+    validations:
+      required: true
+  - type: input
+    id: recording-drive
+    attributes:
+      label: 录像磁盘 / Recording drive
+      description: 请填写容量和介质类型 / Include capacity and media type
+      placeholder: "例如 / Example: 512 GB SSD"
+    validations:
+      required: true
+  - type: textarea
+    id: topic
+    attributes:
+      label: 讨论主题 / Discussion topic
+    validations:
+      required: true
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景及与 OBS-PT、PotPvP 录制的关系 / Background and relation to OBS-PT and PotPvP recording
+    validations:
+      required: true
+  - type: textarea
+    id: current-position
+    attributes:
+      label: 当前观点或初步方案 / Current position or proposal
+    validations:
+      required: true
+  - type: textarea
+    id: desired-conclusion
+    attributes:
+      label: 希望解决的问题或达成的结论 / Desired question or conclusion
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives-references
+    attributes:
+      label: 其他方案、权衡或参考资料 / Alternatives, tradeoffs, or references
+  - type: checkboxes
+    id: submission-checklist
+    attributes:
+      label: 提交确认 / Submission checklist
+      options:
+        - label: 我已搜索现有 Issue，确认没有相同内容 / I searched existing issues and found no duplicate.
+          required: true
+        - label: 我确认事项针对 OBS-PT，而非上游 OBS Studio 或无关第三方软件 / I confirm this concerns OBS-PT, not upstream OBS Studio or unrelated third-party software.
+          required: true
+        - label: 我确认填写的信息准确 / I confirm the information is accurate.
+          required: true
+        - label: 我已检查公开上传的截图、日志和路径是否含敏感信息 / I checked public screenshots, logs, and paths for sensitive information.
+          required: true

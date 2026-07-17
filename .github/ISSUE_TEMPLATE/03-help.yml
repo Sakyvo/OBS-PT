@@ -1,0 +1,89 @@
+name: 使用求助 / Help
+description: 获取 OBS-PT 使用帮助 / Get help using OBS-PT
+title: "[help] "
+labels:
+  - help
+  - triage
+body:
+  - type: input
+    id: obspt-version
+    attributes:
+      label: OBS-PT 版本 / OBS-PT version
+      placeholder: "例如 / Example: 1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: 操作系统 / Operating system
+      placeholder: "例如 / Example: Windows 10 LTSC 2021"
+    validations:
+      required: true
+  - type: input
+    id: cpu
+    attributes:
+      label: CPU
+      placeholder: "例如 / Example: Intel Core i5-10400"
+    validations:
+      required: true
+  - type: input
+    id: gpu-driver
+    attributes:
+      label: GPU 与驱动版本 / GPU and driver version
+      placeholder: "例如 / Example: RTX 3060 (581.57 Studio)"
+    validations:
+      required: true
+  - type: input
+    id: memory
+    attributes:
+      label: 内存 / Memory
+      placeholder: "例如 / Example: DDR4 8 GB × 2, 2666 MHz"
+    validations:
+      required: true
+  - type: input
+    id: recording-drive
+    attributes:
+      label: 录像磁盘 / Recording drive
+      description: 请填写容量和介质类型 / Include capacity and media type
+      placeholder: "例如 / Example: 512 GB SSD"
+    validations:
+      required: true
+  - type: textarea
+    id: help-needed
+    attributes:
+      label: 需要什么帮助 / What do you need help with?
+      description: >-
+        此入口用于 OBS-PT 使用求助，不用于招募贡献者。 /
+        This form is for help using OBS-PT, not for recruiting contributors.
+    validations:
+      required: true
+  - type: textarea
+    id: desired-result
+    attributes:
+      label: 希望达到的结果 / Desired result
+    validations:
+      required: true
+  - type: textarea
+    id: attempted-methods
+    attributes:
+      label: 已尝试的方法 / What have you tried?
+      description: 请同时说明结果 / Include the result of each attempt
+    validations:
+      required: true
+  - type: textarea
+    id: supporting-material
+    attributes:
+      label: 相关配置、截图或日志 / Relevant configuration, screenshots, or logs
+  - type: checkboxes
+    id: submission-checklist
+    attributes:
+      label: 提交确认 / Submission checklist
+      options:
+        - label: 我已搜索现有 Issue，确认没有相同内容 / I searched existing issues and found no duplicate.
+          required: true
+        - label: 我确认事项针对 OBS-PT，而非上游 OBS Studio 或无关第三方软件 / I confirm this concerns OBS-PT, not upstream OBS Studio or unrelated third-party software.
+          required: true
+        - label: 我确认填写的信息准确 / I confirm the information is accurate.
+          required: true
+        - label: 我已检查公开上传的截图、日志和路径是否含敏感信息 / I checked public screenshots, logs, and paths for sensitive information.
+          required: true

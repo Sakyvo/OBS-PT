@@ -1,0 +1,115 @@
+name: 错误报告 / Bug report
+description: 报告可复现的 OBS-PT 功能异常 / Report a reproducible OBS-PT problem
+title: "[bug] "
+labels:
+  - bug
+  - triage
+body:
+  - type: input
+    id: obspt-version
+    attributes:
+      label: OBS-PT 版本 / OBS-PT version
+      placeholder: "例如 / Example: 1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: 操作系统 / Operating system
+      placeholder: "例如 / Example: Windows 10 LTSC 2021"
+    validations:
+      required: true
+  - type: input
+    id: cpu
+    attributes:
+      label: CPU
+      placeholder: "例如 / Example: Intel Core i5-10400"
+    validations:
+      required: true
+  - type: input
+    id: gpu-driver
+    attributes:
+      label: GPU 与驱动版本 / GPU and driver version
+      placeholder: "例如 / Example: RTX 3060 (581.57 Studio)"
+    validations:
+      required: true
+  - type: input
+    id: memory
+    attributes:
+      label: 内存 / Memory
+      placeholder: "例如 / Example: DDR4 8 GB × 2, 2666 MHz"
+    validations:
+      required: true
+  - type: input
+    id: recording-drive
+    attributes:
+      label: 录像磁盘 / Recording drive
+      description: 请填写容量和介质类型 / Include capacity and media type
+      placeholder: "例如 / Example: 512 GB SSD"
+    validations:
+      required: true
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: 实际发生了什么 / What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: 如何复现 / Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: 期望发生什么 / Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: obs-statistics
+    attributes:
+      label: OBS 统计截图或原因 / OBS Statistics screenshot or reason
+      description: >-
+        请上传问题发生时的 OBS 统计截图；无法提供或不适用时请说明原因。 /
+        Upload the OBS Statistics screenshot from the occurrence, or explain
+        why it is unavailable or not applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: task-manager-usage
+    attributes:
+      label: 任务管理器 CPU、GPU 占用截图或原因 / Task Manager CPU/GPU screenshot or reason
+      description: >-
+        请上传问题发生时任务管理器的 CPU、GPU 占用截图；无法提供或不适用时请说明原因。 /
+        Upload a Task Manager CPU/GPU usage screenshot from the occurrence, or
+        explain why it is unavailable or not applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: log-or-reason
+    attributes:
+      label: 日志或无法提供的原因 / Log or reason unavailable
+      description: >-
+        请上传问题发生同次运行的原始 .txt 日志。日志位于
+        <Install Root>/obs-studio/logs/，也可从“帮助 → 日志文件”找到；无法提供时请说明具体原因。 /
+        Upload the original .txt log from the same run. Find it under
+        <Install Root>/obs-studio/logs/ or via Help → Log Files; if unavailable,
+        provide the specific reason.
+    validations:
+      required: true
+  - type: checkboxes
+    id: submission-checklist
+    attributes:
+      label: 提交确认 / Submission checklist
+      options:
+        - label: 我已搜索现有 Issue，确认没有相同内容 / I searched existing issues and found no duplicate.
+          required: true
+        - label: 我确认事项针对 OBS-PT，而非上游 OBS Studio 或无关第三方软件 / I confirm this concerns OBS-PT, not upstream OBS Studio or unrelated third-party software.
+          required: true
+        - label: 我确认填写的信息准确 / I confirm the information is accurate.
+          required: true
+        - label: 我已检查公开上传的截图、日志和路径是否含敏感信息 / I checked public screenshots, logs, and paths for sensitive information.
+          required: true
+        - label: 我已尽可能在当前 OBS-PT 版本中复现问题 / I reproduced this on the current OBS-PT version where possible.
+          required: true
