@@ -1,4 +1,4 @@
-/******************************************************************************
+﻿/******************************************************************************
     Copyright (C) 2013-2015 by Hugh Bailey <obs.jim@gmail.com>
                                Zachary Lund <admin@computerquip.com>
                                Philippe Groarke <philippe.groarke@gmail.com>
@@ -34,6 +34,12 @@
 #include <QSizePolicy>
 #include <QScrollBar>
 #include <QTextStream>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QSet>
+#include <QUuid>
 
 #include <util/dstr.h>
 #include <util/util.hpp>
@@ -71,6 +77,9 @@
 #include "undo-stack-obs.hpp"
 #include "obspt-bootstrap.h"
 #include "window-basic-welcome.hpp"
+#include "window-dock.hpp"
+#include "obspt-audio-routing-dock.hpp"
+#include "obspt-toolbar-theme.hpp"
 #include <fstream>
 #include <sstream>
 
@@ -181,11 +190,9 @@ static void AddExtraModulePaths()
 		os_get_config_path_ptr("obs-studio/plugins/%module%/data");
 	obs_add_module_path(config_bin, config_data);
 
-#elif ARCH_BITS == 64
-	obs_add_module_path((path + "/bin/64bit").c_str(),
-			    (path + "/data").c_str());
 #else
-	obs_add_module_path((path + "/bin/32bit").c_str(),
+	/* OBS-PT is permanently x64 with a flat layout (issue 049). */
+	obs_add_module_path((path + "/bin").c_str(),
 			    (path + "/data").c_str());
 #endif
 }
@@ -248,6 +255,18 @@ OBSBasic::OBSBasic(QWidget *parent)
 	ui->previewDisabledWidget->setVisible(false);
 	ui->contextContainer->setStyle(new OBSProxyStyle);
 	ui->broadcastButton->setVisible(false);
+
+	audioRoutingDock = new OBSDock(this);
+	audioRoutingDock->setObjectName(QStringLiteral("audioRoutingDock"));
+	audioRoutingDock->setWindowTitle(QTStr("AudioRouting.Title"));
+	audioRoutingDock->setMinimumWidth(360);
+	audioRoutingPanel = new OBSPTAudioRoutingDock(this, audioRoutingDock);
+	audioRoutingDock->setWidget(audioRoutingPanel);
+	addDockWidget(Qt::RightDockWidgetArea, audioRoutingDock);
+	AddDockWidget(audioRoutingDock);
+	audioRoutingDock->setFeatures(QDockWidget::DockWidgetMovable |
+				      QDockWidget::DockWidgetFloatable);
+	audioRoutingDock->setVisible(false);
 
 	startingDockLayout = saveState();
 
@@ -495,6 +514,1045 @@ static void SaveAudioDevice(const char *name, int channel, obs_data_t *parent,
 	obs_data_set_obj(parent, name, data);
 }
 
+namespace {
+
+constexpr const char *AudioRoutingKey = "obspt_audio_routing";
+constexpr const char *AudioSourceIdentityKey = "obspt_audio_source_id";
+
+QString AudioSourceIdentity(obs_source_t *source)
+{
+	OBSDataAutoRelease settings = obs_source_get_private_settings(source);
+	return QT_UTF8(obs_data_get_string(settings, AudioSourceIdentityKey));
+}
+
+void SetAudioSourceIdentity(obs_source_t *source, const QString &identity)
+{
+	OBSDataAutoRelease settings = obs_source_get_private_settings(source);
+	obs_data_set_string(settings, AudioSourceIdentityKey,
+			    QT_TO_UTF8(identity));
+}
+
+QString NewAudioSourceIdentity()
+{
+	return QUuid::createUuid().toString(QUuid::WithoutBraces);
+}
+
+QString UniqueSourceName(const QString &preferred, obs_source_t *source)
+{
+	OBSSourceAutoRelease existing =
+		obs_get_source_by_name(QT_TO_UTF8(preferred));
+	if (!existing || existing.Get() == source)
+		return preferred;
+	for (int suffix = 2;; ++suffix) {
+		const QString candidate =
+			QStringLiteral("%1 (%2)").arg(preferred).arg(suffix);
+		existing = obs_get_source_by_name(QT_TO_UTF8(candidate));
+		if (!existing || existing.Get() == source)
+			return candidate;
+	}
+}
+
+bool IsOutputAudioDevice(obs_source_t *source, int firstChannel,
+			 int lastChannel)
+{
+	for (int channel = firstChannel; channel <= lastChannel; ++channel) {
+		OBSSourceAutoRelease device = obs_get_output_source(channel);
+		if (device.Get() == source)
+			return true;
+	}
+	return false;
+}
+
+bool SourceContributesPictureOnly(obs_source_t *source)
+{
+	if (!source)
+		return false;
+	return OBSPTAudioRoutingModel::SourceContributesPictureOnly(
+		QT_UTF8(obs_source_get_id(source)));
+}
+
+bool IsManageableAudioSource(obs_source_t *source)
+{
+	if (!source || obs_obj_is_private(source) || obs_source_is_group(source) ||
+	    obs_scene_from_source(source) ||
+	    obs_source_get_type(source) != OBS_SOURCE_TYPE_INPUT)
+		return false;
+
+	/* A Video Capture Device contributes picture only; its microphone is
+	 * added separately in the Audio and Routing Panel. */
+	if (SourceContributesPictureOnly(source))
+		return false;
+
+	return (obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) != 0;
+}
+
+bool HasPrivateAudioSource()
+{
+	bool found = false;
+	obs_enum_all_sources(
+		[](void *data, obs_source_t *source) {
+			const uint32_t flags = obs_source_get_output_flags(source);
+			if (obs_obj_is_private(source) &&
+			    obs_source_get_type(source) == OBS_SOURCE_TYPE_INPUT &&
+			    (flags & OBS_SOURCE_AUDIO) != 0 &&
+			    (flags & (OBS_SOURCE_SUBMIX | OBS_SOURCE_CAP_DISABLED)) == 0) {
+				*static_cast<bool *>(data) = true;
+				return false;
+			}
+			return true;
+		},
+		&found);
+	return found;
+}
+
+OBSPTAudioSourceKind AudioSourceKind(obs_source_t *source)
+{
+	if (IsOutputAudioDevice(source, 1, 2))
+		return OBSPTAudioSourceKind::DesktopAudio;
+	if (IsOutputAudioDevice(source, 3, 6))
+		return OBSPTAudioSourceKind::AudioInput;
+
+	const char *id = obs_source_get_unversioned_id(source);
+	if (id && strcmp(id, "wasapi_process_output_capture") == 0)
+		return OBSPTAudioSourceKind::ApplicationAudio;
+	if (id && (strstr(id, "input_capture") ||
+		   strcmp(id, "wasapi_input_capture") == 0))
+		return OBSPTAudioSourceKind::AudioInput;
+	if (id && strstr(id, "output_capture"))
+		return OBSPTAudioSourceKind::DesktopAudio;
+
+	return OBSPTAudioSourceKind::Other;
+}
+
+void ShowAudioRoutingLockedMessage(OBSBasic *main)
+{
+	QMessageBox::warning(main, QTStr("AudioRouting.Locked.Title"),
+			     main->AudioRoutingLockDescription());
+}
+
+} // namespace
+
+bool OBSBasic::IsCollectionAudioSource(obs_source_t *source) const
+{
+	if (!IsManageableAudioSource(source) ||
+	    IsOutputAudioDevice(source, 1, 6))
+		return false;
+
+	const uint32_t flags = obs_source_get_output_flags(source);
+	return obs_source_get_type(source) == OBS_SOURCE_TYPE_INPUT &&
+	       (flags & OBS_SOURCE_AUDIO) != 0 &&
+	       (flags & OBS_SOURCE_VIDEO) == 0 &&
+	       (flags & (OBS_SOURCE_SUBMIX | OBS_SOURCE_CAP_DISABLED)) == 0;
+}
+
+void OBSBasic::AdoptCollectionAudioSource(obs_source_t *source)
+{
+	if (!IsCollectionAudioSource(source))
+		return;
+	for (const OBSSource &owned : collectionAudioSources) {
+		if (owned.Get() == source)
+			return;
+	}
+
+	collectionAudioSources.emplace_back(source);
+	obs_source_set_audio_mix_root(source, true);
+	obs_source_inc_active(source);
+	RegisterAudioSource(source);
+	ActivateAudioSource(source);
+
+	if (!loadingAudioRouting)
+		SaveProject();
+}
+
+OBSSource OBSBasic::CommitCollectionAudioSource(obs_source_t *provisional,
+						 int initialEditorTrack)
+{
+	if (!provisional)
+		return nullptr;
+
+	OBSDataAutoRelease settings = obs_source_get_settings(provisional);
+	obs_data_set_int(settings, OBSPTAudioRoutingModel::InitialTrackSetting,
+			 initialEditorTrack);
+	OBSSource source = obs_source_create(obs_source_get_id(provisional),
+					    obs_source_get_name(provisional),
+					    settings, nullptr);
+	if (!source)
+		return nullptr;
+
+	obs_source_set_volume(source, obs_source_get_volume(provisional));
+	obs_source_set_balance_value(source,
+				     obs_source_get_balance_value(provisional));
+	obs_source_set_sync_offset(source,
+				   obs_source_get_sync_offset(provisional));
+	obs_source_set_flags(source, obs_source_get_flags(provisional));
+	obs_source_set_monitoring_type(
+		source, obs_source_get_monitoring_type(provisional));
+	AdoptCollectionAudioSource(source);
+	AudioSourceMonitoringChanged(
+		source, obs_source_get_monitoring_type(source) ==
+				OBS_MONITORING_TYPE_MONITOR_ONLY);
+
+	const QString sourceName = QT_UTF8(obs_source_get_name(source));
+	OBSDataAutoRelease saved = obs_save_source(source);
+	auto undo = [](const std::string &data) {
+		OBSSourceAutoRelease current =
+			obs_get_source_by_name(data.c_str());
+		if (current)
+			obs_source_remove(current);
+	};
+	auto redo = [this](const std::string &data) {
+		OBSDataAutoRelease sourceData =
+			obs_data_create_from_json(data.c_str());
+		OBSSourceAutoRelease restored = obs_load_source(sourceData);
+		if (restored)
+			AdoptCollectionAudioSource(restored);
+	};
+	undo_s.add_action(QTStr("Undo.Add").arg(sourceName), undo, redo,
+			  QT_TO_UTF8(sourceName), obs_data_get_json(saved));
+	SaveProject();
+	return source;
+}
+
+void OBSBasic::ReleaseCollectionAudioSource(obs_source_t *source)
+{
+	for (auto it = collectionAudioSources.begin();
+	     it != collectionAudioSources.end(); ++it) {
+		if (it->Get() != source)
+			continue;
+		obs_source_set_audio_mix_root(source, false);
+		obs_source_dec_active(source);
+		collectionAudioSources.erase(it);
+		return;
+	}
+}
+
+void OBSBasic::ReleaseAllCollectionAudioSources()
+{
+	for (const OBSSource &source : collectionAudioSources) {
+		obs_source_set_audio_mix_root(source, false);
+		obs_source_dec_active(source);
+	}
+	collectionAudioSources.clear();
+}
+
+void OBSBasic::LoadAudioRouting(obs_data_t *data)
+{
+	audioRouting = OBSPTAudioRoutingModel();
+	OBSDataAutoRelease routing = obs_data_get_obj(data, AudioRoutingKey);
+	if (!routing)
+		return;
+
+	QJsonParseError error;
+	const QJsonDocument document = QJsonDocument::fromJson(
+		QByteArray(obs_data_get_json(routing)), &error);
+	if (error.error == QJsonParseError::NoError && document.isObject() &&
+	    document.object().value(QStringLiteral("version")).toInt() >=
+		    OBSPTAudioRoutingModel::CurrentVersion) {
+		audioRouting =
+			OBSPTAudioRoutingModel::FromJson(document.object());
+	}
+}
+
+void OBSBasic::SaveAudioRouting(obs_data_t *data)
+{
+	const QByteArray json =
+		QJsonDocument(audioRouting.ToJson()).toJson(QJsonDocument::Compact);
+	OBSDataAutoRelease routing = obs_data_create_from_json(json.constData());
+	obs_data_set_obj(data, AudioRoutingKey, routing);
+}
+
+void OBSBasic::ApplyAudioRouting(obs_source_t *source)
+{
+	/* Silence it explicitly: returning early would leave the source on its
+	 * default mixer, so the camera's microphone would still reach Track 1. */
+	if (SourceContributesPictureOnly(source)) {
+		obs_source_set_audio_mixers(source, 0);
+		return;
+	}
+	if (!IsManageableAudioSource(source))
+		return;
+
+	const QString identity = AudioSourceIdentity(source);
+	const OBSPTAudioRoutingModel effectiveRouting =
+		audioRouting.TopologyLocked() ? audioRouting.FrozenRoutingModel()
+					      : OBSPTAudioRoutingModel::FromJson(
+							audioRouting.ToJson());
+	const OBSPTAudioRoute *route = effectiveRouting.FindSource(identity);
+	if (!route)
+		return obs_source_set_audio_mixers(source, 0);
+
+	const QSet<QString> desktopSources = audioRoutingSessionRefs > 0
+						     ? audioRoutingDesktopAuthority
+						     : CurrentDesktopAudioSources();
+	bool desktopAuthority = false;
+	for (const QString &desktopId : desktopSources) {
+		const OBSPTAudioRoute *current =
+			audioRouting.FindSource(desktopId);
+		if (current && !current->muted && !current->monitorOnly) {
+			desktopAuthority = true;
+			break;
+		}
+	}
+	const OBSPTAudioRoute *current = audioRouting.FindSource(identity);
+	const bool currentlyExcluded =
+		current && (current->muted || current->monitorOnly);
+	uint32_t mixers = 0;
+	if (!route->muted && !route->monitorOnly && !currentlyExcluded) {
+		if (route->kind == OBSPTAudioSourceKind::DesktopAudio)
+			mixers = desktopSources.contains(identity) ? 1U : 0U;
+		else if (route->kind !=
+				 OBSPTAudioSourceKind::ApplicationAudio ||
+			 !desktopAuthority)
+			mixers = 1U;
+	}
+	if (!route->muted && !route->monitorOnly &&
+	    route->kind != OBSPTAudioSourceKind::DesktopAudio &&
+	    route->editorTrack >= OBSPTAudioRoutingModel::FirstEditorTrack &&
+	    route->editorTrack <= OBSPTAudioRoutingModel::LastEditorTrack) {
+		mixers |= 1U << (route->editorTrack - 1);
+	}
+	obs_source_set_audio_mixers(source, mixers);
+}
+
+QSet<QString> OBSBasic::CurrentDesktopAudioSources() const
+{
+	QSet<QString> sources;
+	for (obs_source_t *source : registeredAudioSources) {
+		if (!source || !obs_source_audio_active(source))
+			continue;
+		const QString identity = AudioSourceIdentity(source);
+		const OBSPTAudioRoute *route = audioRouting.FindSource(identity);
+		if (route && route->kind == OBSPTAudioSourceKind::DesktopAudio)
+			sources.insert(identity);
+	}
+	return sources;
+}
+
+void OBSBasic::ApplyAllAudioRouting()
+{
+	for (obs_source_t *source : registeredAudioSources)
+		ApplyAudioRouting(source);
+}
+
+/* Absent means generate: installs that predate the option keep
+ * today's behavior. */
+bool OBSBasic::RecordMixTrackEnabled() const
+{
+	if (config_has_user_value(Config(), "Audio", "RecordMixTrack"))
+		return config_get_bool(Config(), "Audio", "RecordMixTrack");
+	return true;
+}
+
+QVector<OBSPTAudioOutputTrack>
+OBSBasic::GetAudioRoutingTopology(const QString &format) const
+{
+	const OBSPTAudioRoutingModel effectiveRouting =
+		audioRouting.TopologyLocked() ? audioRouting.FrozenRoutingModel()
+					      : OBSPTAudioRoutingModel::FromJson(
+							audioRouting.ToJson());
+	const bool includeMixTrack = RecordMixTrackEnabled();
+	return effectiveRouting.DeriveLocalTopology(
+		format, audioRoutingSessionRefs > 0 ? audioRoutingDesktopAuthority
+						   : CurrentDesktopAudioSources(),
+		audioRoutingSessionRefs > 0 ? audioRoutingPrivateMix
+					    : HasPrivateAudioSource(),
+		includeMixTrack);
+}
+
+QVector<OBSPTAudioOutputTrack>
+OBSBasic::GetAudioStreamingTopology(int vodEditorTrack) const
+{
+	const OBSPTAudioRoutingModel effectiveRouting =
+		audioRouting.TopologyLocked() ? audioRouting.FrozenRoutingModel()
+					      : OBSPTAudioRoutingModel::FromJson(
+							audioRouting.ToJson());
+	return effectiveRouting.DeriveStreamingTopology(
+		vodEditorTrack,
+		audioRoutingSessionRefs > 0 ? audioRoutingDesktopAuthority
+					   : CurrentDesktopAudioSources(),
+		audioRoutingSessionRefs > 0 ? audioRoutingPrivateMix
+					    : HasPrivateAudioSource());
+}
+
+OBSSource OBSBasic::GetAudioRoutingSource(const QString &sourceId) const
+{
+	for (obs_source_t *source : registeredAudioSources) {
+		if (source && AudioSourceIdentity(source) == sourceId)
+			return OBSSource(source);
+	}
+	return nullptr;
+}
+
+QString OBSBasic::GetAudioRoutingSourceIdentity(obs_source_t *source) const
+{
+	return AudioSourceIdentity(source);
+}
+
+bool OBSBasic::AudioSourcePendingNextSession(const QString &sourceId) const
+{
+	if (!audioRouting.TopologyLocked())
+		return false;
+	const OBSPTAudioRoute *current = audioRouting.FindSource(sourceId);
+	const OBSPTAudioRoutingModel frozen = audioRouting.FrozenRoutingModel();
+	const OBSPTAudioRoute *initial = frozen.FindSource(sourceId);
+	if (!current || !initial)
+		return current != nullptr;
+	return (initial->muted || initial->monitorOnly) &&
+	       !current->muted && !current->monitorOnly;
+}
+
+QString OBSBasic::AudioRoutingLockDescription()
+{
+	QStringList outputs;
+	if (RecordingActive())
+		outputs.push_back(QTStr("AudioRouting.Output.Recording"));
+	if (ReplayBufferActive())
+		outputs.push_back(QTStr("AudioRouting.Output.ReplayBuffer"));
+	if (outputHandler && outputHandler->streamingTopologySession)
+		outputs.push_back(QTStr("AudioRouting.Output.VodStream"));
+	return QTStr("AudioRouting.Locked.Text")
+		.arg(outputs.isEmpty() ? QTStr("AudioRouting.Output.Active")
+				       : outputs.join(QStringLiteral(", ")));
+}
+
+void OBSBasic::BeginAudioRoutingSession()
+{
+	if (audioRoutingSessionRefs++ == 0) {
+		audioRoutingDesktopAuthority = CurrentDesktopAudioSources();
+		audioRoutingPrivateMix = HasPrivateAudioSource();
+	}
+	audioRouting.BeginTopologySession();
+	ApplyAllAudioRouting();
+}
+
+void OBSBasic::EndAudioRoutingSession()
+{
+	if (audioRoutingSessionRefs <= 0)
+		return;
+	audioRouting.EndTopologySession();
+	if (--audioRoutingSessionRefs == 0) {
+		audioRoutingDesktopAuthority.clear();
+		audioRoutingPrivateMix = false;
+	}
+	ApplyAllAudioRouting();
+}
+
+void OBSBasic::RegisterAudioSource(obs_source_t *source)
+{
+	if (loadingAudioRouting || !IsManageableAudioSource(source))
+		return;
+	if (registeredAudioSources.contains(source))
+		return;
+	registeredAudioSources.insert(source);
+	OBSDataAutoRelease sourceSettings = obs_source_get_settings(source);
+	const int initialEditorTrack = (int)obs_data_get_int(
+		sourceSettings, OBSPTAudioRoutingModel::InitialTrackSetting);
+	obs_data_erase(sourceSettings,
+		       OBSPTAudioRoutingModel::InitialTrackSetting);
+	if (initialEditorTrack != 0 && IsCollectionAudioSource(source)) {
+		bool owned = false;
+		for (const OBSSource &current : collectionAudioSources) {
+			if (current.Get() == source) {
+				owned = true;
+				break;
+			}
+		}
+		if (!owned) {
+			collectionAudioSources.emplace_back(source);
+			obs_source_set_audio_mix_root(source, true);
+			obs_source_inc_active(source);
+		}
+	}
+
+	QString identity = AudioSourceIdentity(source);
+	const OBSPTAudioRoute *inherited = audioRouting.FindSource(identity);
+	const QString inheritedIdentity = inherited ? identity : QString();
+	if (identity.isEmpty() || inherited) {
+		identity = NewAudioSourceIdentity();
+		SetAudioSourceIdentity(source, identity);
+	}
+
+	if (!inheritedIdentity.isEmpty()) {
+		audioRouting.DuplicateSource(
+			inheritedIdentity, identity,
+			QT_UTF8(obs_source_get_name(source)));
+	} else {
+		audioRouting.AddSource(identity,
+				       QT_UTF8(obs_source_get_name(source)),
+				       AudioSourceKind(source), initialEditorTrack);
+	}
+	ApplyAudioRouting(source);
+
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+}
+
+void OBSBasic::SceneItemRemoved(void *data, calldata_t *)
+{
+	/* Removing an item from a scene does not announce the source itself
+	 * as removed, so nothing else would ever drop its routing entry. */
+	QMetaObject::invokeMethod(static_cast<OBSBasic *>(data),
+				  "PruneOrphanedAudioRoutingSlot",
+				  Qt::QueuedConnection);
+}
+
+void OBSBasic::PruneOrphanedAudioRoutingSlot()
+{
+	PruneOrphanedAudioRouting();
+}
+
+void OBSBasic::PruneOrphanedAudioRouting()
+{
+	if (loadingAudioRouting || audioRouting.TopologyLocked())
+		return;
+
+	QSet<QString> reachable;
+
+	/* Pure audio sources deliberately have no Scene Item - that is what
+	 * lets them keep capturing across scene switches - so they are
+	 * reachable by ownership rather than by scene membership. */
+	for (const OBSSource &owned : collectionAudioSources) {
+		const QString identity = AudioSourceIdentity(owned.Get());
+		if (!identity.isEmpty())
+			reachable.insert(identity);
+	}
+
+	/* Device sources bound to an output channel likewise have no item. */
+	for (int channel = 1; channel <= 6; ++channel) {
+		OBSSourceAutoRelease device = obs_get_output_source(channel);
+		if (!device)
+			continue;
+		const QString identity = AudioSourceIdentity(device);
+		if (!identity.isEmpty())
+			reachable.insert(identity);
+	}
+
+	auto collectScene = [](void *data, obs_source_t *source) {
+		obs_scene_t *scene = obs_scene_from_source(source);
+		if (!scene)
+			return true;
+		obs_scene_enum_items(
+			scene,
+			[](obs_scene_t *, obs_sceneitem_t *item, void *inner) {
+				obs_source_t *itemSource =
+					obs_sceneitem_get_source(item);
+				if (itemSource) {
+					auto *out = static_cast<
+						QSet<QString> *>(inner);
+					const QString identity =
+						AudioSourceIdentity(itemSource);
+					if (!identity.isEmpty())
+						out->insert(identity);
+				}
+				if (obs_sceneitem_is_group(item))
+					obs_sceneitem_group_enum_items(
+						item,
+						[](obs_scene_t *,
+						   obs_sceneitem_t *child,
+						   void *deepest) {
+							obs_source_t *cs =
+								obs_sceneitem_get_source(
+									child);
+							if (!cs)
+								return true;
+							auto *set = static_cast<
+								QSet<QString> *>(
+								deepest);
+							const QString id =
+								AudioSourceIdentity(
+									cs);
+							if (!id.isEmpty())
+								set->insert(id);
+							return true;
+						},
+						inner);
+				return true;
+			},
+			data);
+		return true;
+	};
+	obs_enum_scenes(collectScene, &reachable);
+
+	if (audioRouting.PruneSourcesNotIn(reachable) == 0)
+		return;
+
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+}
+
+void OBSBasic::ReconcileAudioRoutingSources()
+{
+	QSet<QString> claimed;
+
+	auto reconcile = [&](obs_source_t *source) {
+		/* A Video Capture Device contributes picture only. Drop any
+		 * entry a previous version left behind, and make sure its
+		 * audio reaches no output. */
+		if (SourceContributesPictureOnly(source)) {
+			const QString stale = AudioSourceIdentity(source);
+			if (!stale.isEmpty() &&
+			    audioRouting.FindSource(stale)) {
+				audioRouting.RemoveSource(stale);
+				audioRoutingRepairPending = true;
+			}
+			registeredAudioSources.remove(source);
+			obs_source_set_audio_mixers(source, 0);
+			return;
+		}
+		if (!IsManageableAudioSource(source))
+			return;
+		if (registeredAudioSources.contains(source))
+			return;
+		OBSDataAutoRelease sourceSettings =
+			obs_source_get_settings(source);
+		const int initialEditorTrack = (int)obs_data_get_int(
+			sourceSettings,
+			OBSPTAudioRoutingModel::InitialTrackSetting);
+		obs_data_erase(sourceSettings,
+			       OBSPTAudioRoutingModel::InitialTrackSetting);
+
+		QString identity = AudioSourceIdentity(source);
+		const QString originalIdentity = identity;
+		const OBSPTAudioRoute *existing =
+			audioRouting.FindSource(identity);
+		const bool duplicateIdentity =
+			!identity.isEmpty() && claimed.contains(identity);
+
+		if (identity.isEmpty() || duplicateIdentity) {
+			identity = NewAudioSourceIdentity();
+			SetAudioSourceIdentity(source, identity);
+		}
+
+		if (duplicateIdentity && existing) {
+			audioRouting.DuplicateSource(
+				originalIdentity, identity,
+				QT_UTF8(obs_source_get_name(source)));
+		} else if (!existing || identity != originalIdentity) {
+			audioRouting.AddSource(
+				identity, QT_UTF8(obs_source_get_name(source)),
+				AudioSourceKind(source), initialEditorTrack);
+		} else {
+			audioRouting.UpdateSourceName(
+				identity, QT_UTF8(obs_source_get_name(source)));
+			audioRouting.SetMuted(identity, obs_source_muted(source));
+			audioRouting.SetMonitorOnly(
+				identity,
+				obs_source_get_monitoring_type(source) ==
+					OBS_MONITORING_TYPE_MONITOR_ONLY);
+		}
+
+		claimed.insert(identity);
+		if (IsCollectionAudioSource(source)) {
+			bool owned = false;
+			for (const OBSSource &current : collectionAudioSources) {
+				if (current.Get() == source) {
+					owned = true;
+					break;
+				}
+			}
+			if (!owned) {
+				collectionAudioSources.emplace_back(source);
+				obs_source_set_audio_mix_root(source, true);
+				obs_source_inc_active(source);
+			}
+		}
+		registeredAudioSources.insert(source);
+		ApplyAudioRouting(source);
+	};
+
+	for (int channel = 1; channel <= 6; ++channel) {
+		OBSSourceAutoRelease source = obs_get_output_source(channel);
+		if (source)
+			reconcile(source);
+	}
+
+	using ReconcileFunction = decltype(reconcile);
+	obs_enum_sources(
+		[](void *data, obs_source_t *source) {
+			(*static_cast<ReconcileFunction *>(data))(source);
+			return true;
+		},
+		&reconcile);
+
+	for (obs_source_t *source : registeredAudioSources) {
+		const QString identity = AudioSourceIdentity(source);
+		const QString current = QT_UTF8(obs_source_get_name(source));
+		QString repaired =
+			OBSPTAudioRoutingModel::RepairDefaultSourceName(
+				identity, current, QTStr("Basic.DesktopDevice1"));
+		if (repaired == current)
+			continue;
+		repaired = UniqueSourceName(repaired, source);
+		obs_source_set_name(source, QT_TO_UTF8(repaired));
+		audioRouting.UpdateSourceName(identity, repaired);
+		audioRoutingRepairPending = true;
+	}
+
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+}
+
+void OBSBasic::RemoveAudioRoutingSource(obs_source_t *source)
+{
+	if (loadingAudioRouting || !source)
+		return;
+	ReleaseCollectionAudioSource(source);
+	registeredAudioSources.remove(source);
+	if (audioRouting.RemoveSource(AudioSourceIdentity(source))) {
+		DeactivateAudioSource(source);
+		if (audioRoutingPanel)
+			audioRoutingPanel->Refresh();
+		RefreshAudioMixer();
+		SaveProject();
+	}
+}
+
+bool OBSBasic::RemoveAudioRoutingSource(const QString &sourceId)
+{
+	OBSSource source = GetAudioRoutingSource(sourceId);
+	if (!source || !CanRemoveAudioRoutingSource(sourceId))
+		return false;
+	if (!QueryRemoveSource(source))
+		return false;
+
+	OBSSource retained = source;
+	ReleaseCollectionAudioSource(source);
+	obs_source_remove(retained);
+	return true;
+}
+
+bool OBSBasic::CanRemoveAudioRoutingSource(const QString &sourceId) const
+{
+	OBSSource source = GetAudioRoutingSource(sourceId);
+	if (!source || !IsCollectionAudioSource(source))
+		return false;
+	for (const OBSSource &owned : collectionAudioSources) {
+		if (owned.Get() == source.Get())
+			return true;
+	}
+	return false;
+}
+
+bool OBSBasic::SetAudioSourceTrack(const QString &sourceId, int editorTrack)
+{
+	if (audioRouting.TopologyLocked()) {
+		ShowAudioRoutingLockedMessage(this);
+		return false;
+	}
+	if (!audioRouting.AssignSource(sourceId, editorTrack))
+		return false;
+
+	auto apply = [&](obs_source_t *source) {
+		if (AudioSourceIdentity(source) == sourceId)
+			ApplyAudioRouting(source);
+	};
+	using ApplyFunction = decltype(apply);
+	obs_enum_sources(
+		[](void *data, obs_source_t *source) {
+			(*static_cast<ApplyFunction *>(data))(source);
+			return true;
+		},
+		&apply);
+
+	RefreshAudioMixer();
+	SaveProject();
+	return true;
+}
+
+OBSPTAudioRouteChangeResult OBSBasic::MoveAudioSourceToTrack(
+	const QString &sourceId, const OBSPTAudioTrackTarget &target)
+{
+	if (audioRouting.TopologyLocked()) {
+		ShowAudioRoutingLockedMessage(this);
+		return OBSPTAudioRouteChangeResult::Rejected;
+	}
+
+	const OBSPTAudioRouteChangeResult result =
+		audioRouting.MoveSourceToEditorTrack(sourceId, target);
+	if (result != OBSPTAudioRouteChangeResult::Changed)
+		return result;
+
+	OBSSource source = GetAudioRoutingSource(sourceId);
+	const OBSPTAudioRoute *route = audioRouting.FindSource(sourceId);
+	if (source && route && obs_source_muted(source) != route->muted) {
+		const bool previousLoading = loadingAudioRouting;
+		loadingAudioRouting = true;
+		obs_source_set_muted(source, route->muted);
+		loadingAudioRouting = previousLoading;
+	}
+	ApplyAllAudioRouting();
+	SaveProject();
+	RefreshAudioMixer();
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	return result;
+}
+
+bool OBSBasic::SetAudioTrackName(int track, const QString &name)
+{
+	if (audioRouting.TopologyLocked()) {
+		ShowAudioRoutingLockedMessage(this);
+		return false;
+	}
+	if (!audioRouting.SetTrackName(track, name))
+		return false;
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+	return true;
+}
+
+bool OBSBasic::RenameAudioRoutingSource(const QString &sourceId,
+					const QString &requestedName,
+					QWidget *parent)
+{
+	OBSSource source = GetAudioRoutingSource(sourceId);
+	if (!source)
+		return false;
+
+	const QString name = requestedName.trimmed();
+	const QString previous = QT_UTF8(obs_source_get_name(source));
+	if (name == previous)
+		return true;
+	if (name.isEmpty()) {
+		OBSMessageBox::warning(parent, QTStr("NoNameEntered.Title"),
+				       QTStr("NoNameEntered.Text"));
+		return false;
+	}
+
+	OBSSourceAutoRelease existing =
+		obs_get_source_by_name(QT_TO_UTF8(name));
+	if (existing && existing.Get() != source.Get()) {
+		OBSMessageBox::warning(parent, QTStr("NameExists.Title"),
+				       QTStr("NameExists.Text"));
+		return false;
+	}
+
+	const std::string oldName = QT_TO_UTF8(previous);
+	const std::string newName = QT_TO_UTF8(name);
+	auto rename = [sourceId](const std::string &value) {
+		OBSBasic *main = OBSBasic::Get();
+		if (!main)
+			return;
+		OBSSource current = main->GetAudioRoutingSource(sourceId);
+		if (current)
+			obs_source_set_name(current, value.c_str());
+	};
+	undo_s.add_action(QTStr("Undo.Rename").arg(name), rename, rename,
+			  oldName, newName);
+	obs_source_set_name(source, newName.c_str());
+	return true;
+}
+
+bool OBSBasic::MoveAudioSource(const QString &sourceId, int direction)
+{
+	if (audioRouting.TopologyLocked()) {
+		ShowAudioRoutingLockedMessage(this);
+		return false;
+	}
+	const OBSPTAudioRoute *route = audioRouting.FindSource(sourceId);
+	if (!route || direction == 0)
+		return false;
+	const QVector<const OBSPTAudioRoute *> trackSources =
+		audioRouting.SourcesForTrack(route->editorTrack);
+	int current = -1;
+	for (int i = 0; i < trackSources.size(); ++i) {
+		if (trackSources[i]->sourceId == sourceId) {
+			current = i;
+			break;
+		}
+	}
+	if (current < 0 ||
+	    !audioRouting.MoveSource(sourceId, current + direction))
+		return false;
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+	return true;
+}
+
+bool OBSBasic::SetAudioSourcePosition(const QString &sourceId, int index)
+{
+	if (audioRouting.TopologyLocked()) {
+		ShowAudioRoutingLockedMessage(this);
+		return false;
+	}
+	if (!audioRouting.MoveSource(sourceId, index))
+		return false;
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+	return true;
+}
+
+void OBSBasic::AudioSourceMuted(obs_source_t *source, bool muted)
+{
+	if (loadingAudioRouting || !source)
+		return;
+	const QString identity = AudioSourceIdentity(source);
+	if (!audioRouting.SetMuted(identity, muted))
+		return;
+	ApplyAllAudioRouting();
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+}
+
+bool OBSBasic::SetAudioSourceMuted(const QString &sourceId, bool muted)
+{
+	bool found = false;
+	auto apply = [&](obs_source_t *source) {
+		if (AudioSourceIdentity(source) != sourceId)
+			return;
+		found = true;
+		obs_source_set_muted(source, muted);
+	};
+	using ApplyFunction = decltype(apply);
+	obs_enum_sources(
+		[](void *data, obs_source_t *source) {
+			(*static_cast<ApplyFunction *>(data))(source);
+			return true;
+		},
+		&apply);
+	if (!found)
+		return false;
+	audioRouting.SetMuted(sourceId, muted);
+	ApplyAllAudioRouting();
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+	return true;
+}
+
+bool OBSBasic::SetAudioMode(OBSPTAudioMode mode)
+{
+	if (audioRouting.Mode() == mode)
+		return true;
+
+	/* The mode determines the output track topology, so changing it while
+	 * an output runs would leave the file or the stream inconsistent.
+	 * Refuse before touching any state. */
+	if (outputHandler && outputHandler->Active()) {
+		OBSMessageBox::warning(
+			this, QTStr("AudioRouting.AudioMode.Busy.Title"),
+			QTStr("AudioRouting.AudioMode.Busy.Text"));
+		return false;
+	}
+
+	/* Switching only flips the mode: per-source track assignments and
+	 * mute choices are left untouched, so returning to multi-track
+	 * restores the previous layout without a restore step. */
+	audioRouting.SetMode(mode);
+	ApplyAllAudioRouting();
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+	return true;
+}
+
+bool OBSBasic::SetSingleTrackMuted(bool muted)
+{
+	if (audioRouting.SingleTrackMuted() == muted)
+		return true;
+	audioRouting.SetSingleTrackMuted(muted);
+	ApplyAllAudioRouting();
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+	return true;
+}
+
+bool OBSBasic::MoveMutedAudioSource(const QString &sourceId, int direction)
+{
+	const QVector<const OBSPTAudioRoute *> muted =
+		audioRouting.MutedSources();
+	int current = -1;
+	for (int i = 0; i < muted.size(); ++i) {
+		if (muted[i]->sourceId == sourceId) {
+			current = i;
+			break;
+		}
+	}
+	if (current < 0 ||
+	    !audioRouting.MoveMutedSource(sourceId, current + direction))
+		return false;
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+	return true;
+}
+
+bool OBSBasic::SetMutedAudioSourcePosition(const QString &sourceId, int index)
+{
+	if (!audioRouting.MoveMutedSource(sourceId, index))
+		return false;
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+	return true;
+}
+
+void OBSBasic::AudioSourceMonitoringChanged(obs_source_t *source,
+					     bool monitorOnly)
+{
+	if (loadingAudioRouting || !source)
+		return;
+	const QString identity = AudioSourceIdentity(source);
+	const OBSPTAudioRoute *route = audioRouting.FindSource(identity);
+	if (audioRouting.TopologyLocked() && route &&
+	    route->monitorOnly != monitorOnly) {
+		ShowAudioRoutingLockedMessage(this);
+		obs_source_set_monitoring_type(
+			source, route->monitorOnly
+					? OBS_MONITORING_TYPE_MONITOR_ONLY
+					: OBS_MONITORING_TYPE_NONE);
+		return;
+	}
+	if (!audioRouting.SetMonitorOnly(identity, monitorOnly))
+		return;
+	ApplyAllAudioRouting();
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	RefreshAudioMixer();
+	SaveProject();
+}
+
+void OBSBasic::ShowAudioRoutingPanel()
+{
+	if (!audioRoutingDock)
+		return;
+	if (audioRoutingPanel)
+		audioRoutingPanel->Refresh();
+	audioRoutingDock->show();
+	audioRoutingDock->raise();
+}
+
+void OBSBasic::OpenAudioSettings()
+{
+	static bool opening = false;
+	if (opening)
+		return;
+	opening = true;
+	OBSBasicSettings settings(this);
+	settings.SetCurrentPage(3);
+	settings.exec();
+	opening = false;
+}
+
 static obs_data_t *GenerateSaveData(obs_data_array_t *sceneOrder,
 				    obs_data_array_t *quickTransitionData,
 				    int transitionDuration,
@@ -575,21 +1633,8 @@ static obs_data_t *GenerateSaveData(obs_data_array_t *sceneOrder,
 void OBSBasic::copyActionsDynamicProperties()
 {
 	// Themes need the QAction dynamic properties
-	for (QAction *x : ui->scenesToolbar->actions()) {
-		QWidget *temp = ui->scenesToolbar->widgetForAction(x);
-
-		for (QByteArray &y : x->dynamicPropertyNames()) {
-			temp->setProperty(y, x->property(y));
-		}
-	}
-
-	for (QAction *x : ui->sourcesToolbar->actions()) {
-		QWidget *temp = ui->sourcesToolbar->widgetForAction(x);
-
-		for (QByteArray &y : x->dynamicPropertyNames()) {
-			temp->setProperty(y, x->property(y));
-		}
-	}
+	OBSPTApplyToolbarActionTheme(ui->scenesToolbar);
+	OBSPTApplyToolbarActionTheme(ui->sourcesToolbar);
 }
 
 void OBSBasic::UpdateVolumeControlsDecayRate()
@@ -706,6 +1751,7 @@ void OBSBasic::Save(const char *file)
 	OBSDataAutoRelease saveData = GenerateSaveData(
 		sceneOrder, quickTrData, ui->transitionDuration->value(),
 		transitions, scene, curProgramScene, savedProjectorList);
+	SaveAudioRouting(saveData);
 
 	obs_data_set_bool(saveData, "preview_locked", ui->preview->Locked());
 	obs_data_set_bool(saveData, "scaling_enabled",
@@ -751,6 +1797,16 @@ static void LoadAudioDevice(const char *name, int channel, obs_data_t *parent)
 	OBSSourceAutoRelease source = obs_load_source(data);
 	if (!source)
 		return;
+	/* Output devices are recreated by ResetAudio before the collection is
+	 * loaded. Preserve the source-private identity that was saved with the
+	 * collection so routing remains stable across restarts. */
+	OBSDataAutoRelease savedPrivate =
+		obs_data_get_obj(data, "private_settings");
+	if (savedPrivate) {
+		OBSDataAutoRelease privateSettings =
+			obs_source_get_private_settings(source);
+		obs_data_apply(privateSettings, savedPrivate);
+	}
 
 	obs_set_output_source(channel, source);
 
@@ -968,7 +2024,10 @@ void OBSBasic::Load(const char *file)
 
 void OBSBasic::LoadData(obs_data_t *data, const char *file)
 {
+	loadingAudioRouting = true;
+	registeredAudioSources.clear();
 	ClearSceneData();
+	LoadAudioRouting(data);
 	InitDefaultTransitions();
 	ClearContextBar();
 
@@ -1036,20 +2095,36 @@ void OBSBasic::LoadData(obs_data_t *data, const char *file)
 
 	obs_missing_files_t *files = obs_missing_files_create();
 
-	auto cb = [](void *private_data, obs_source_t *source) {
-		obs_missing_files_t *f = (obs_missing_files_t *)private_data;
+	struct SourceLoadContext {
+		obs_missing_files_t *files;
+		OBSBasic *main;
+	};
+	SourceLoadContext sourceLoadContext{files, this};
+	auto sourceLoadCallback = [](void *private_data, obs_source_t *source) {
+		SourceLoadContext *context =
+			static_cast<SourceLoadContext *>(private_data);
 		obs_missing_files_t *sf = obs_source_get_missing_files(source);
 
+		obs_missing_files_append(context->files, sf);
+		obs_missing_files_destroy(sf);
+		context->main->AdoptCollectionAudioSource(source);
+	};
+	auto missingFilesCallback = [](void *private_data,
+				       obs_source_t *source) {
+		obs_missing_files_t *f =
+			static_cast<obs_missing_files_t *>(private_data);
+		obs_missing_files_t *sf = obs_source_get_missing_files(source);
 		obs_missing_files_append(f, sf);
 		obs_missing_files_destroy(sf);
 
 		UNUSED_PARAMETER(source);
 	};
 
-	obs_load_sources(sources, cb, files);
+	obs_load_sources(sources, sourceLoadCallback, &sourceLoadContext);
+	ReconcileAudioRoutingSources();
 
 	if (transitions)
-		LoadTransitions(transitions, cb, files);
+		LoadTransitions(transitions, missingFilesCallback, files);
 	if (sceneOrder)
 		LoadSceneListOrder(sceneOrder);
 
@@ -1169,6 +2244,7 @@ retryScene:
 	}
 
 	LogScenes();
+	loadingAudioRouting = false;
 
 	if (obs_missing_files_count(files) > 0 &&
 	    !App()->IsMissingFilesCheckDisabled()) {
@@ -1186,7 +2262,10 @@ retryScene:
 	}
 
 	disableSaving--;
-
+	if (audioRoutingRepairPending) {
+		audioRoutingRepairPending = false;
+		SaveProject();
+	}
 	if (api) {
 		api->on_event(OBS_FRONTEND_EVENT_SCENE_CHANGED);
 		api->on_event(OBS_FRONTEND_EVENT_PREVIEW_SCENE_CHANGED);
@@ -1299,32 +2378,6 @@ bool OBSBasic::InitBasicConfigDefaults()
 	bool changed = false;
 
 	/* ----------------------------------------------------- */
-	/* move over old FFmpeg track settings                   */
-	if (config_has_user_value(basicConfig, "AdvOut", "FFAudioTrack") &&
-	    !config_has_user_value(basicConfig, "AdvOut", "Pre22.1Settings")) {
-
-		int track = (int)config_get_int(basicConfig, "AdvOut",
-						"FFAudioTrack");
-		config_set_int(basicConfig, "AdvOut", "FFAudioMixes",
-			       1LL << (track - 1));
-		config_set_bool(basicConfig, "AdvOut", "Pre22.1Settings", true);
-		changed = true;
-	}
-
-	/* ----------------------------------------------------- */
-	/* move over mixer values in advanced if older config */
-	if (config_has_user_value(basicConfig, "AdvOut", "RecTrackIndex") &&
-	    !config_has_user_value(basicConfig, "AdvOut", "RecTracks")) {
-
-		uint64_t track =
-			config_get_uint(basicConfig, "AdvOut", "RecTrackIndex");
-		track = 1ULL << (track - 1);
-		config_set_uint(basicConfig, "AdvOut", "RecTracks", track);
-		config_remove_value(basicConfig, "AdvOut", "RecTrackIndex");
-		changed = true;
-	}
-
-	/* ----------------------------------------------------- */
 	/* set twitch chat extensions to "both" if prev version  */
 	/* is under 24.1                                         */
 	if (config_get_bool(GetGlobalConfig(), "General", "Pre24.1Defaults") &&
@@ -1368,6 +2421,7 @@ bool OBSBasic::InitBasicConfigDefaults()
 	/* ----------------------------------------------------- */
 
 	config_set_default_string(basicConfig, "Output", "Mode", "Simple");
+	config_set_default_uint(basicConfig, "Output", "AudioBitrate", 160);
 
 	config_set_default_bool(basicConfig, "Stream1", "IgnoreRecommended",
 				false);
@@ -1377,7 +2431,6 @@ bool OBSBasic::InitBasicConfigDefaults()
 	config_set_default_string(basicConfig, "SimpleOutput", "RecFormat",
 				  "hybrid_mp4");
 	config_set_default_uint(basicConfig, "SimpleOutput", "VBitrate", 2500);
-	config_set_default_uint(basicConfig, "SimpleOutput", "ABitrate", 160);
 	config_set_default_bool(basicConfig, "SimpleOutput", "UseAdvanced",
 				false);
 	config_set_default_string(basicConfig, "SimpleOutput", "Preset",
@@ -1395,7 +2448,6 @@ bool OBSBasic::InitBasicConfigDefaults()
 	config_set_default_bool(basicConfig, "AdvOut", "ApplyServiceSettings",
 				true);
 	config_set_default_bool(basicConfig, "AdvOut", "UseRescale", false);
-	config_set_default_uint(basicConfig, "AdvOut", "TrackIndex", 1);
 	config_set_default_uint(basicConfig, "AdvOut", "VodTrackIndex", 2);
 	config_set_default_string(basicConfig, "AdvOut", "Encoder", "obs_x264");
 
@@ -1406,9 +2458,7 @@ bool OBSBasic::InitBasicConfigDefaults()
 	config_set_default_string(basicConfig, "AdvOut", "RecFormat",
 				  "hybrid_mp4");
 	config_set_default_bool(basicConfig, "AdvOut", "RecUseRescale", false);
-	config_set_default_uint(basicConfig, "AdvOut", "RecTracks", (1 << 0));
 	config_set_default_string(basicConfig, "AdvOut", "RecEncoder", "none");
-	config_set_default_uint(basicConfig, "AdvOut", "FLVTrack", 1);
 
 	config_set_default_bool(basicConfig, "AdvOut", "FFOutputToFile", true);
 	config_set_default_string(basicConfig, "AdvOut", "FFFilePath",
@@ -1418,16 +2468,6 @@ bool OBSBasic::InitBasicConfigDefaults()
 	config_set_default_uint(basicConfig, "AdvOut", "FFVGOPSize", 250);
 	config_set_default_bool(basicConfig, "AdvOut", "FFUseRescale", false);
 	config_set_default_bool(basicConfig, "AdvOut", "FFIgnoreCompat", false);
-	config_set_default_uint(basicConfig, "AdvOut", "FFABitrate", 160);
-	config_set_default_uint(basicConfig, "AdvOut", "FFAudioMixes", 1);
-
-	config_set_default_uint(basicConfig, "AdvOut", "Track1Bitrate", 160);
-	config_set_default_uint(basicConfig, "AdvOut", "Track2Bitrate", 160);
-	config_set_default_uint(basicConfig, "AdvOut", "Track3Bitrate", 160);
-	config_set_default_uint(basicConfig, "AdvOut", "Track4Bitrate", 160);
-	config_set_default_uint(basicConfig, "AdvOut", "Track5Bitrate", 160);
-	config_set_default_uint(basicConfig, "AdvOut", "Track6Bitrate", 160);
-
 	config_set_default_bool(basicConfig, "AdvOut", "RecRB", false);
 	config_set_default_uint(basicConfig, "AdvOut", "RecRBTime", 20);
 	config_set_default_int(basicConfig, "AdvOut", "RecRBSize", 512);
@@ -1876,6 +2916,10 @@ void OBSBasic::OBSInit()
 		Load(savePath);
 		disableSaving++;
 	}
+
+	// Issue 041: distribute the global Java Detection leniency into all
+	// relevant sources once startup scene data is live.
+	PropagateJavaDetection();
 
 	TimedCheckForUpdates();
 	loaded = true;
@@ -2835,7 +3879,8 @@ void OBSBasic::CreateInteractionWindow(obs_source_t *source)
 	interaction->setAttribute(Qt::WA_DeleteOnClose, true);
 }
 
-void OBSBasic::CreatePropertiesWindow(obs_source_t *source)
+void OBSBasic::CreatePropertiesWindow(obs_source_t *source,
+				      bool allowSourceRename)
 {
 	bool closed = true;
 	if (properties)
@@ -2844,7 +3889,8 @@ void OBSBasic::CreatePropertiesWindow(obs_source_t *source)
 	if (!closed)
 		return;
 
-	properties = new OBSBasicProperties(this, source);
+	properties = new OBSBasicProperties(this, source, false,
+					    allowSourceRename);
 	properties->Init();
 	properties->setAttribute(Qt::WA_DeleteOnClose, true);
 }
@@ -2897,6 +3943,8 @@ void OBSBasic::AddScene(OBSSource source)
 	container.handlers.assign({
 		std::make_shared<OBSSignal>(handler, "item_add",
 					    OBSBasic::SceneItemAdded, this),
+		std::make_shared<OBSSignal>(handler, "item_remove",
+					    OBSBasic::SceneItemRemoved, this),
 		std::make_shared<OBSSignal>(handler, "reorder",
 					    OBSBasic::SceneReordered, this),
 		std::make_shared<OBSSignal>(handler, "refresh",
@@ -3021,6 +4069,12 @@ static void RenameListValues(QListWidget *listWidget, const QString &newName,
 void OBSBasic::RenameSources(OBSSource source, QString newName,
 			     QString prevName)
 {
+	if (IsManageableAudioSource(source)) {
+		audioRouting.UpdateSourceName(AudioSourceIdentity(source), newName);
+		if (audioRoutingPanel)
+			audioRoutingPanel->Refresh();
+	}
+
 	RenameListValues(ui->scenes, newName, prevName);
 
 	for (size_t i = 0; i < volumes.size(); i++) {
@@ -3040,6 +4094,16 @@ void OBSBasic::RenameSources(OBSSource source, QString newName,
 		OBSProjector::UpdateMultiviewProjectors();
 
 	UpdateContextBar();
+}
+
+void OBSBasic::RegisterAudioSourceSlot(OBSSource source)
+{
+	RegisterAudioSource(source);
+}
+
+void OBSBasic::RemoveAudioSourceSlot(OBSSource source)
+{
+	RemoveAudioRoutingSource(source);
 }
 
 void OBSBasic::ClearContextBar()
@@ -3149,6 +4213,14 @@ void OBSBasic::UpdateContextBar(bool force)
 				AudioCaptureToolbar *c =
 					new AudioCaptureToolbar(ui->emptySpace,
 								source);
+				c->Init();
+				ui->emptySpace->layout()->addWidget(c);
+
+			} else if (strcmp(id,
+					  "wasapi_process_output_capture") == 0) {
+				ApplicationAudioCaptureToolbar *c =
+					new ApplicationAudioCaptureToolbar(
+						ui->emptySpace, source);
 				c->Init();
 				ui->emptySpace->layout()->addWidget(c);
 
@@ -3395,8 +4467,6 @@ void OBSBasic::VolControlContextMenu()
 	lockAction.setCheckable(true);
 	lockAction.setChecked(SourceVolumeLocked(vol->GetSource()));
 
-	QAction hideAction(QTStr("Hide"), this);
-	QAction unhideAllAction(QTStr("UnhideAll"), this);
 	QAction mixerRenameAction(QTStr("Rename"), this);
 
 	QAction copyFiltersAction(QTStr("Copy.Filters"), this);
@@ -3413,10 +4483,6 @@ void OBSBasic::VolControlContextMenu()
 
 	/* ------------------- */
 
-	connect(&hideAction, &QAction::triggered, this,
-		&OBSBasic::HideAudioControl, Qt::DirectConnection);
-	connect(&unhideAllAction, &QAction::triggered, this,
-		&OBSBasic::UnhideAllAudioControls, Qt::DirectConnection);
 	connect(&lockAction, &QAction::toggled, this,
 		&OBSBasic::LockVolumeControl, Qt::DirectConnection);
 	connect(&mixerRenameAction, &QAction::triggered, this,
@@ -3442,8 +4508,6 @@ void OBSBasic::VolControlContextMenu()
 
 	/* ------------------- */
 
-	hideAction.setProperty("volControl",
-			       QVariant::fromValue<VolControl *>(vol));
 	lockAction.setProperty("volControl",
 			       QVariant::fromValue<VolControl *>(vol));
 	mixerRenameAction.setProperty("volControl",
@@ -3476,8 +4540,6 @@ void OBSBasic::VolControlContextMenu()
 	vol->SetContextMenu(&popup);
 	popup.addAction(&lockAction);
 	popup.addSeparator();
-	popup.addAction(&unhideAllAction);
-	popup.addAction(&hideAction);
 	popup.addAction(&mixerRenameAction);
 	popup.addSeparator();
 	popup.addAction(&copyFiltersAction);
@@ -3504,8 +4566,6 @@ void OBSBasic::on_vMixerScrollArea_customContextMenuRequested()
 
 void OBSBasic::StackedMixerAreaContextMenuRequested()
 {
-	QAction unhideAllAction(QTStr("UnhideAll"), this);
-
 	QAction advPropAction(QTStr("Basic.MainMenu.Edit.AdvAudio"), this);
 
 	QAction toggleControlLayoutAction(QTStr("VerticalLayout"), this);
@@ -3514,9 +4574,6 @@ void OBSBasic::StackedMixerAreaContextMenuRequested()
 		GetGlobalConfig(), "BasicWindow", "VerticalVolControl"));
 
 	/* ------------------- */
-
-	connect(&unhideAllAction, &QAction::triggered, this,
-		&OBSBasic::UnhideAllAudioControls, Qt::DirectConnection);
 
 	connect(&advPropAction, &QAction::triggered, this,
 		&OBSBasic::on_actionAdvAudioProperties_triggered,
@@ -3530,8 +4587,6 @@ void OBSBasic::StackedMixerAreaContextMenuRequested()
 	/* ------------------- */
 
 	QMenu popup;
-	popup.addAction(&unhideAllAction);
-	popup.addSeparator();
 	popup.addAction(&toggleControlLayoutAction);
 	popup.addSeparator();
 	popup.addAction(&advPropAction);
@@ -3557,29 +4612,12 @@ void OBSBasic::ToggleVolControlLayout()
 			vertical);
 	ToggleMixerLayout(vertical);
 
-	// We need to store it so we can delete current and then add
-	// at the right order
-	vector<OBSSource> sources;
-	for (size_t i = 0; i != volumes.size(); i++)
-		sources.emplace_back(volumes[i]->GetSource());
-
 	ClearVolumeControls();
-
-	for (const auto &source : sources)
-		ActivateAudioSource(source);
+	RefreshAudioMixer();
 }
 
-void OBSBasic::ActivateAudioSource(OBSSource source)
+VolControl *OBSBasic::CreateAudioControl(OBSSource source, bool vertical)
 {
-	if (SourceMixerHidden(source))
-		return;
-	if (!obs_source_active(source))
-		return;
-	if (!obs_source_audio_active(source))
-		return;
-
-	bool vertical = config_get_bool(GetGlobalConfig(), "BasicWindow",
-					"VerticalVolControl");
 	VolControl *vol = new VolControl(source, true, vertical);
 
 	vol->EnableSlider(!SourceVolumeLocked(source));
@@ -3612,19 +4650,157 @@ void OBSBasic::ActivateAudioSource(OBSSource source)
 		&OBSBasic::VolControlContextMenu);
 	connect(vol, &VolControl::ConfigClicked, this,
 		&OBSBasic::VolControlContextMenu);
+	return vol;
+}
 
-	InsertQObjectByName(volumes, vol);
+QVector<QString> OBSBasic::OrderedAudioRoutingSourceIds() const
+{
+	QVector<QString> ordered;
+	auto append = [&ordered](const OBSPTAudioRoute *route) {
+		if (route && !ordered.contains(route->sourceId))
+			ordered.push_back(route->sourceId);
+	};
 
-	for (auto volume : volumes) {
+	for (const OBSPTAudioRoute &route : audioRouting.Sources()) {
+		if (route.kind == OBSPTAudioSourceKind::DesktopAudio &&
+		    !route.muted)
+			append(&route);
+	}
+	for (int track = OBSPTAudioRoutingModel::FirstEditorTrack;
+	     track <= OBSPTAudioRoutingModel::LastEditorTrack; ++track) {
+		for (const OBSPTAudioRoute *route :
+		     audioRouting.SourcesForTrack(track))
+			append(route);
+	}
+	for (const OBSPTAudioRoute *route : audioRouting.MutedSources())
+		append(route);
+	for (const OBSPTAudioRoute &route : audioRouting.Sources())
+		append(&route);
+	return ordered;
+}
+
+void OBSBasic::RefreshAudioMixer()
+{
+	if (refreshingAudioMixer)
+		return;
+	refreshingAudioMixer = true;
+
+	const QVector<QString> ordered = OrderedAudioRoutingSourceIds();
+	const bool vertical = config_get_bool(
+		GetGlobalConfig(), "BasicWindow", "VerticalVolControl");
+
+	for (const QString &sourceId : ordered) {
+		OBSSource source = GetAudioRoutingSource(sourceId);
+		if (!source)
+			continue;
+		bool exists = false;
+		for (VolControl *volume : volumes) {
+			if (volume->GetSource() == source.Get()) {
+				exists = true;
+				break;
+			}
+		}
+		if (!exists)
+			volumes.push_back(CreateAudioControl(source, vertical));
+	}
+
+	for (size_t index = volumes.size(); index > 0; --index) {
+		VolControl *volume = volumes[index - 1];
+		const QString sourceId = AudioSourceIdentity(volume->GetSource());
+		if (!audioRouting.FindSource(sourceId)) {
+			delete volume;
+			volumes.erase(volumes.begin() + (index - 1));
+		}
+	}
+
+	std::stable_sort(volumes.begin(), volumes.end(),
+			 [ordered](VolControl *left, VolControl *right) {
+				 const int leftIndex = ordered.indexOf(
+					 AudioSourceIdentity(left->GetSource()));
+				 const int rightIndex = ordered.indexOf(
+					 AudioSourceIdentity(right->GetSource()));
+				 return leftIndex < rightIndex;
+			 });
+
+	for (VolControl *volume : volumes) {
+		const QString sourceId = AudioSourceIdentity(volume->GetSource());
+		const OBSPTAudioRoute *route =
+			audioRouting.FindSource(sourceId);
+		if (!route)
+			continue;
+
+		QString trackLabel;
+		QColor trackColor;
+		const OBSPTMixerBadge badge = audioRouting.MixerBadge(*route);
+		switch (badge) {
+		case OBSPTMixerBadge::Muted:
+			trackLabel = QStringLiteral("M");
+			trackColor = QColor(QStringLiteral("#8b0000"));
+			break;
+		case OBSPTMixerBadge::Mix:
+			trackLabel = QStringLiteral("1 %1").arg(
+				audioRouting.TrackName(1));
+			trackColor = obs_source_enabled(volume->GetSource())
+					     ? QColor(QStringLiteral("#218739"))
+					     : palette().color(
+						       QPalette::Disabled,
+						       QPalette::Text);
+			break;
+		case OBSPTMixerBadge::EditorTrack:
+			trackLabel = QStringLiteral("%1 %2")
+					     .arg(route->editorTrack)
+					     .arg(audioRouting.TrackName(
+						     route->editorTrack));
+			trackColor = obs_source_enabled(volume->GetSource()) &&
+						     !route->monitorOnly
+					     ? QColor(QStringLiteral("#218739"))
+					     : palette().color(
+						       QPalette::Disabled,
+						       QPalette::Text);
+			break;
+		case OBSPTMixerBadge::Hidden:
+			break;
+		}
+		volume->SetTrackLabel(trackLabel, trackColor);
+		volume->SetTrackLabelVisible(badge != OBSPTMixerBadge::Hidden);
+		ui->hVolControlLayout->removeWidget(volume);
+		ui->vVolControlLayout->removeWidget(volume);
+	}
+	for (VolControl *volume : volumes) {
 		if (vertical)
 			ui->vVolControlLayout->addWidget(volume);
 		else
 			ui->hVolControlLayout->addWidget(volume);
 	}
+
+	refreshingAudioMixer = false;
+}
+
+void OBSBasic::ActivateAudioSource(OBSSource source)
+{
+	if (!source ||
+	    !audioRouting.FindSource(AudioSourceIdentity(source.Get())))
+		return;
+	for (VolControl *volume : volumes) {
+		if (volume->GetSource() == source.Get()) {
+			RefreshAudioMixer();
+			return;
+		}
+	}
+
+	const bool vertical = config_get_bool(
+		GetGlobalConfig(), "BasicWindow", "VerticalVolControl");
+	volumes.push_back(CreateAudioControl(source, vertical));
+	RefreshAudioMixer();
 }
 
 void OBSBasic::DeactivateAudioSource(OBSSource source)
 {
+	if (audioRouting.FindSource(AudioSourceIdentity(source.Get()))) {
+		RefreshAudioMixer();
+		return;
+	}
+
 	for (size_t i = 0; i < volumes.size(); i++) {
 		if (volumes[i]->GetSource() == source) {
 			delete volumes[i];
@@ -4031,12 +5207,57 @@ void OBSBasic::SceneItemAdded(void *data, calldata_t *params)
 				  Q_ARG(OBSSceneItem, OBSSceneItem(item)));
 }
 
+void OBSBasic::PropagateJavaDetection()
+{
+	bool lenient = config_get_bool(GetGlobalConfig(), "General",
+					     "JavaDetectionLenient");
+
+	obs_enum_sources(
+		[](void *param, obs_source_t *source) {
+			const bool lenientValue = *(bool *)param;
+			const char *id = obs_source_get_id(source);
+			if (!id)
+				return true;
+			if (strcmp(id, "game_capture") != 0 &&
+			    strcmp(id, "wasapi_process_output_capture") != 0)
+				return true;
+			obs_data_t *settings = obs_source_get_settings(source);
+			obs_data_set_bool(settings, "java_detection_lenient",
+					  lenientValue);
+			obs_data_release(settings);
+			obs_source_update(source, nullptr);
+			return true;
+		},
+		&lenient);
+}
+
 void OBSBasic::SourceCreated(void *data, calldata_t *params)
 {
 	obs_source_t *source = (obs_source_t *)calldata_ptr(params, "source");
+	OBSBasic *window = static_cast<OBSBasic *>(data);
+
+	// Issue 041: newly created game capture or process audio capture
+	// sources inherit the current global Java Detection leniency.
+	{
+		const char *id = obs_source_get_id(source);
+		if (id && (strcmp(id, "game_capture") == 0 ||
+			   strcmp(id, "wasapi_process_output_capture") == 0)) {
+			obs_data_t *settings = obs_source_get_settings(source);
+			obs_data_set_bool(
+				settings, "java_detection_lenient",
+				config_get_bool(App()->GlobalConfig(), "General",
+						"JavaDetectionLenient"));
+			obs_data_release(settings);
+			obs_source_update(source, nullptr);
+		}
+	}
+
+	if (obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO)
+		QMetaObject::invokeMethod(window, "RegisterAudioSourceSlot",
+					  Q_ARG(OBSSource, OBSSource(source)));
 
 	if (obs_scene_from_source(source) != NULL)
-		QMetaObject::invokeMethod(static_cast<OBSBasic *>(data),
+		QMetaObject::invokeMethod(window,
 					  "AddScene", WaitConnection(),
 					  Q_ARG(OBSSource, OBSSource(source)));
 }
@@ -4044,9 +5265,14 @@ void OBSBasic::SourceCreated(void *data, calldata_t *params)
 void OBSBasic::SourceRemoved(void *data, calldata_t *params)
 {
 	obs_source_t *source = (obs_source_t *)calldata_ptr(params, "source");
+	OBSBasic *window = static_cast<OBSBasic *>(data);
+
+	if (obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO)
+		QMetaObject::invokeMethod(window, "RemoveAudioSourceSlot",
+					  Q_ARG(OBSSource, OBSSource(source)));
 
 	if (obs_scene_from_source(source) != NULL)
-		QMetaObject::invokeMethod(static_cast<OBSBasic *>(data),
+		QMetaObject::invokeMethod(window,
 					  "RemoveScene",
 					  Q_ARG(OBSSource, OBSSource(source)));
 }
@@ -4563,6 +5789,7 @@ void OBSBasic::ClearSceneData()
 	ui->transitions->clear();
 
 	ClearProjectors();
+	ReleaseAllCollectionAudioSources();
 
 	for (int i = 0; i < MAX_CHANNELS; i++)
 		obs_set_output_source(i, nullptr);
@@ -4877,18 +6104,7 @@ void load_audio_source(int channel, obs_data_t *data)
 
 void OBSBasic::on_actionAdvAudioProperties_triggered()
 {
-	if (advAudioWindow != nullptr) {
-		advAudioWindow->raise();
-		return;
-	}
-
-	bool iconsVisible = config_get_bool(App()->GlobalConfig(),
-					    "BasicWindow", "ShowSourceIcons");
-
-	advAudioWindow = new OBSBasicAdvAudio(this);
-	advAudioWindow->show();
-	advAudioWindow->setAttribute(Qt::WA_DeleteOnClose, true);
-	advAudioWindow->SetIconsVisible(iconsVisible);
+	ShowAudioRoutingPanel();
 }
 
 void OBSBasic::on_scenes_currentItemChanged(QListWidgetItem *current,
@@ -5466,7 +6682,6 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 		uint32_t flags = obs_source_get_output_flags(source);
 		bool isAsyncVideo = (flags & OBS_SOURCE_ASYNC_VIDEO) ==
 				    OBS_SOURCE_ASYNC_VIDEO;
-		bool hasAudio = (flags & OBS_SOURCE_AUDIO) == OBS_SOURCE_AUDIO;
 		QAction *action;
 
 		colorMenu = new QMenu(QTStr("ChangeBG"));
@@ -5493,14 +6708,6 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 		popup.addAction(sourceWindow);
 
 		popup.addSeparator();
-
-		if (hasAudio) {
-			QAction *actionHideMixer =
-				popup.addAction(QTStr("HideMixer"), this,
-						SLOT(ToggleHideMixer()));
-			actionHideMixer->setCheckable(true);
-			actionHideMixer->setChecked(SourceMixerHidden(source));
-		}
 
 		if (isAsyncVideo) {
 			deinterlaceMenu = new QMenu(QTStr("Deinterlacing"));
@@ -5595,18 +6802,42 @@ static inline bool should_show_properties(obs_source_t *source, const char *id)
 	return true;
 }
 
-void OBSBasic::AddSource(const char *id)
+void OBSBasic::AddSource(const char *id, bool collectionAudio)
 {
 	if (id && *id) {
-		OBSBasicSourceSelect sourceSelect(this, id, undo_s);
-		sourceSelect.exec();
+		const int selectedEditorTrack =
+			collectionAudio && audioRoutingPanel
+				? audioRoutingPanel->SelectedCreationTrack()
+				: 0;
+		OBSBasicSourceSelect sourceSelect(
+			this, id, undo_s,
+			collectionAudio
+				? OBSBasicSourceSelectMode::CollectionAudio
+				: OBSBasicSourceSelectMode::SceneItem,
+			selectedEditorTrack);
+		if (sourceSelect.exec() != QDialog::Accepted)
+			return;
+		if (collectionAudio) {
+			bool accepted = true;
+			if (should_show_properties(sourceSelect.newSource, id)) {
+				OBSBasicProperties propertiesDialog(
+					this, sourceSelect.newSource, true);
+				propertiesDialog.exec();
+				accepted = propertiesDialog.WasAccepted();
+			}
+			if (accepted)
+				CommitCollectionAudioSource(
+					sourceSelect.newSource,
+					sourceSelect.InitialEditorTrack());
+			return;
+		}
 		if (should_show_properties(sourceSelect.newSource, id)) {
 			CreatePropertiesWindow(sourceSelect.newSource);
 		}
 	}
 }
 
-QMenu *OBSBasic::CreateAddSourcePopupMenu()
+QMenu *OBSBasic::CreateAddSourcePopupMenu(bool audioOnly)
 {
 	const char *unversioned_type;
 	const char *type;
@@ -5628,11 +6859,13 @@ QMenu *OBSBasic::CreateAddSourcePopupMenu()
 		return (QAction *)nullptr;
 	};
 
-	auto addSource = [this, getActionAfter](QMenu *popup, const char *type,
-						const char *name) {
+	auto addSource = [this, getActionAfter,
+			  audioOnly](QMenu *popup, const char *type,
+				     const char *name) {
 		QString qname = QT_UTF8(name);
 		QAction *popupItem = new QAction(qname, this);
 		popupItem->setData(QT_UTF8(type));
+		popupItem->setProperty("obspt_collection_audio", audioOnly);
 		connect(popupItem, SIGNAL(triggered(bool)), this,
 			SLOT(AddSourceFromAction()));
 
@@ -5655,6 +6888,11 @@ QMenu *OBSBasic::CreateAddSourcePopupMenu()
 
 		if ((caps & OBS_SOURCE_CAP_DISABLED) != 0)
 			continue;
+		const bool hasVideo = (caps & OBS_SOURCE_VIDEO) != 0;
+		const bool pureAudio = (caps & OBS_SOURCE_AUDIO) != 0 &&
+				       !hasVideo;
+		if ((audioOnly && !pureAudio) || (!audioOnly && !hasVideo))
+			continue;
 
 		if ((caps & OBS_SOURCE_DEPRECATED) == 0) {
 			addSource(popup, unversioned_type, name);
@@ -5665,15 +6903,17 @@ QMenu *OBSBasic::CreateAddSourcePopupMenu()
 		foundValues = true;
 	}
 
-	addSource(popup, "scene", Str("Basic.Scene"));
+	if (!audioOnly) {
+		addSource(popup, "scene", Str("Basic.Scene"));
 
-	popup->addSeparator();
-	QAction *addGroup = new QAction(QTStr("Group"), this);
-	addGroup->setData(QT_UTF8("group"));
-	addGroup->setIcon(GetGroupIcon());
-	connect(addGroup, SIGNAL(triggered(bool)), this,
-		SLOT(AddSourceFromAction()));
-	popup->addAction(addGroup);
+		popup->addSeparator();
+		QAction *addGroup = new QAction(QTStr("Group"), this);
+		addGroup->setData(QT_UTF8("group"));
+		addGroup->setIcon(GetGroupIcon());
+		connect(addGroup, SIGNAL(triggered(bool)), this,
+			SLOT(AddSourceFromAction()));
+		popup->addAction(addGroup);
+	}
 
 	if (!foundDeprecated) {
 		delete deprecated;
@@ -5698,7 +6938,8 @@ void OBSBasic::AddSourceFromAction()
 	if (!action)
 		return;
 
-	AddSource(QT_TO_UTF8(action->data().toString()));
+	AddSource(QT_TO_UTF8(action->data().toString()),
+		  action->property("obspt_collection_audio").toBool());
 }
 
 void OBSBasic::AddSourcePopupMenu(const QPoint &pos)
@@ -5712,6 +6953,13 @@ void OBSBasic::AddSourcePopupMenu(const QPoint &pos)
 	}
 
 	QScopedPointer<QMenu> popup(CreateAddSourcePopupMenu());
+	if (popup)
+		popup->exec(pos);
+}
+
+void OBSBasic::AddAudioSourcePopupMenu(const QPoint &pos)
+{
+	QScopedPointer<QMenu> popup(CreateAddSourcePopupMenu(true));
 	if (popup)
 		popup->exec(pos);
 }
@@ -6198,13 +7446,13 @@ void OBSBasic::OpenFilters(OBSSource source)
 	CreateFiltersWindow(source);
 }
 
-void OBSBasic::OpenProperties(OBSSource source)
+void OBSBasic::OpenProperties(OBSSource source, bool allowSourceRename)
 {
 	if (source == nullptr) {
 		OBSSceneItem item = GetCurrentSceneItem();
 		source = obs_sceneitem_get_source(item);
 	}
-	CreatePropertiesWindow(source);
+	CreatePropertiesWindow(source, allowSourceRename);
 }
 
 void OBSBasic::OpenInteraction(OBSSource source)
@@ -8730,34 +9978,34 @@ void OBSBasic::on_resetUI_triggered()
 		}
 	}
 
-	restoreState(startingDockLayout);
+	/* OBS-PT (issue 052): Reset UI restores the packaged default layout
+	 * shipped at data/obs-studio/obspt-defaults/obs-studio/global.ini
+	 * ([BasicWindow] DockState), decoded from Base64 and applied via
+	 * restoreState. This is the same snapshot a fresh install applies, so
+	 * reset == "return to the factory UI", including audioRoutingDock.
+	 * Neither the program-start snapshot nor the upstream hard-coded
+	 * five-dock proportional resize is used.
+	 */
+	string defaultsIni;
+	bool restored = false;
+	if (GetDataFilePath("obspt-defaults/obs-studio/global.ini",
+			    defaultsIni)) {
+		config_t *defaults = nullptr;
+		if (config_open(&defaults, defaultsIni.c_str(),
+				CONFIG_OPEN_EXISTING) == CONFIG_SUCCESS) {
+			const char *dockStateStr = config_get_string(
+				defaults, "BasicWindow", "DockState");
+			if (dockStateStr && *dockStateStr)
+				restored = restoreState(QByteArray::fromBase64(
+					QByteArray(dockStateStr)));
+			config_close(defaults);
+		}
+	}
 
-	int cx = width();
-	int cy = height();
-
-	int cx22_5 = cx * 225 / 1000;
-	int cx5 = cx * 5 / 100;
-
-	cy = cy * 225 / 1000;
-
-	int mixerSize = cx - (cx22_5 * 2 + cx5 * 2);
-
-	QList<QDockWidget *> docks{ui->scenesDock, ui->sourcesDock,
-				   ui->mixerDock, ui->transitionsDock,
-				   ui->controlsDock};
-
-	QList<int> sizes{cx22_5, cx22_5, mixerSize, cx5, cx5};
-
-	ui->scenesDock->setVisible(true);
-	ui->sourcesDock->setVisible(true);
-	ui->mixerDock->setVisible(true);
-	ui->transitionsDock->setVisible(true);
-	ui->controlsDock->setVisible(true);
-	statsDock->setVisible(false);
-	statsDock->setFloating(true);
-
-	resizeDocks(docks, {cy, cy, cy, cy, cy}, Qt::Vertical);
-	resizeDocks(docks, sizes, Qt::Horizontal);
+	if (!restored)
+		blog(LOG_WARNING, "Reset UI: packaged DockState unavailable "
+				  "(install tree missing obspt-defaults), layout left "
+				  "unchanged");
 
 	activateWindow();
 }
@@ -8783,6 +10031,11 @@ void OBSBasic::on_lockUI_toggled(bool lock)
 	for (int i = extraDocks.size() - 1; i >= 0; i--) {
 		if (!extraDocks[i]) {
 			extraDocks.removeAt(i);
+		} else if (extraDocks[i] == audioRoutingDock) {
+			extraDocks[i]->setFeatures(
+				lock ? QDockWidget::NoDockWidgetFeatures
+				     : (QDockWidget::DockWidgetMovable |
+					QDockWidget::DockWidgetFloatable));
 		} else {
 			extraDocks[i]->setFeatures(features);
 		}

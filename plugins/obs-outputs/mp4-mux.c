@@ -222,8 +222,25 @@ static size_t mp4_write_tkhd(struct mp4_mux *mux, struct mp4_track *track)
 	uint64_t duration =
 		util_mul_div64(track->duration, 1000, track->timebase_den);
 
-	/* Flags are 0x1 (enabled) | 0x2 (in movie) */
-	static const uint32_t flags = 0x1 | 0x2;
+	/* Keep only the first audio track enabled for ordinary players. The
+	 * remaining Editor Tracks stay in the file for NLEs but are not selected
+	 * as additional default playback streams. */
+	bool first_audio = true;
+	if (track->type == TRACK_AUDIO) {
+		for (size_t i = 0; i < mux->tracks.num; ++i) {
+			const struct mp4_track *candidate = &mux->tracks.array[i];
+			if (candidate == track)
+				break;
+			if (candidate->type == TRACK_AUDIO) {
+				first_audio = false;
+				break;
+			}
+		}
+	}
+	/* Flags are 0x1 (enabled) | 0x2 (in movie). */
+	uint32_t flags = 0x2;
+	if (track->type != TRACK_AUDIO || first_audio)
+		flags |= 0x1;
 	write_fullbox(s, 0, "tkhd", 0, flags);
 
 	if (duration > UINT32_MAX || mux->creation_time > UINT32_MAX) {

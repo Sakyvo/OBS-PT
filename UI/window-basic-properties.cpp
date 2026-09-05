@@ -23,7 +23,18 @@
 #include "properties-view.hpp"
 
 #include <QCloseEvent>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
+#include <QLabel>
+#include <QLineEdit>
 #include <QScreen>
+#include <QSignalBlocker>
+#include <QSlider>
+#include <QSpinBox>
+#include <QTabWidget>
+#include <QVBoxLayout>
 #include <QWindow>
 #include <QMessageBox>
 #include <obs-data.h>
@@ -31,16 +42,22 @@
 #include <qpointer.h>
 #include <util/c99defs.h>
 
+#include <cmath>
+
 using namespace std;
 
 static void CreateTransitionScene(OBSSource scene, const char *text,
 				  uint32_t color);
 
-OBSBasicProperties::OBSBasicProperties(QWidget *parent, OBSSource source_)
+OBSBasicProperties::OBSBasicProperties(QWidget *parent, OBSSource source_,
+				       bool provisionalCreation_,
+				       bool allowSourceRename_)
 	: QDialog(parent),
 	  preview(new OBSQTDisplay(this)),
 	  main(qobject_cast<OBSBasic *>(parent)),
 	  acceptClicked(false),
+	  provisionalCreation(provisionalCreation_),
+	  allowSourceRename(allowSourceRename_),
 	  source(source_),
 	  removedSignal(obs_source_get_signal_handler(source), "remove",
 			OBSBasicProperties::SourceRemoved, this),
@@ -49,6 +66,11 @@ OBSBasicProperties::OBSBasicProperties(QWidget *parent, OBSSource source_)
 	  oldSettings(obs_data_create()),
 	  buttonBox(new QDialogButtonBox(this))
 {
+	oldVolume = obs_source_get_volume(source);
+	oldBalance = obs_source_get_balance_value(source);
+	oldSyncOffset = obs_source_get_sync_offset(source);
+	oldSourceFlags = obs_source_get_flags(source);
+	oldMonitoringType = obs_source_get_monitoring_type(source);
 	int cx = (int)config_get_int(App()->GlobalConfig(), "PropertiesWindow",
 				     "cx");
 	int cy = (int)config_get_int(App()->GlobalConfig(), "PropertiesWindow",
@@ -101,8 +123,27 @@ OBSBasicProperties::OBSBasicProperties(QWidget *parent, OBSSource source_)
 	windowSplitter->setStretchFactor(0, 3);
 	windowSplitter->setStretchFactor(1, 1);
 
+	QWidget *capturePage = new QWidget(this);
+	QVBoxLayout *captureLayout = new QVBoxLayout(capturePage);
+	captureLayout->setContentsMargins(0, 0, 0, 0);
+	captureLayout->addWidget(windowSplitter);
+
+	tabs = new QTabWidget(this);
+	tabs->addTab(capturePage, QTStr("Basic.PropertiesWindow.Capture"));
+	if ((obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) != 0)
+		BuildAudioPage();
+
 	setLayout(new QVBoxLayout(this));
-	layout()->addWidget(windowSplitter);
+	if (allowSourceRename) {
+		QFormLayout *nameLayout = new QFormLayout;
+		nameLayout->setContentsMargins(0, 0, 0, 0);
+		sourceNameEdit = new QLineEdit(QT_UTF8(obs_source_get_name(source)),
+					       this);
+		sourceNameEdit->setObjectName(QStringLiteral("sourceNameEdit"));
+		nameLayout->addRow(QTStr("AudioRouting.Name"), sourceNameEdit);
+		layout()->addItem(nameLayout);
+	}
+	layout()->addWidget(tabs);
 
 	if (type == OBS_SOURCE_TYPE_TRANSITION) {
 		connect(view, SIGNAL(PropertiesRefreshed()), this,
@@ -315,9 +356,13 @@ void OBSBasicProperties::SourceRenamed(void *data, calldata_t *params)
 {
 	const char *name = calldata_string(params, "new_name");
 	QString title = QTStr("Basic.PropertiesWindow").arg(QT_UTF8(name));
+	OBSBasicProperties *window = static_cast<OBSBasicProperties *>(data);
 
-	QMetaObject::invokeMethod(static_cast<OBSBasicProperties *>(data),
+	QMetaObject::invokeMethod(window,
 				  "setWindowTitle", Q_ARG(QString, title));
+	if (window->sourceNameEdit)
+		QMetaObject::invokeMethod(window->sourceNameEdit, "setText",
+				  Q_ARG(QString, QT_UTF8(name)));
 }
 
 void OBSBasicProperties::UpdateProperties(void *data, calldata_t *)
@@ -331,6 +376,8 @@ void OBSBasicProperties::on_buttonBox_clicked(QAbstractButton *button)
 	QDialogButtonBox::ButtonRole val = buttonBox->buttonRole(button);
 
 	if (val == QDialogButtonBox::AcceptRole) {
+		if (!CommitSourceName())
+			return;
 
 		std::string scene_name =
 			obs_source_get_name(main->GetCurrentSceneSource());
@@ -363,7 +410,7 @@ void OBSBasicProperties::on_buttonBox_clicked(QAbstractButton *button)
 		std::string undo_data(obs_data_get_json(oldSettings));
 		std::string redo_data(obs_data_get_json(new_settings));
 
-		if (undo_data.compare(redo_data) != 0)
+		if (!provisionalCreation && undo_data.compare(redo_data) != 0)
 			main->undo_s.add_action(
 				QTStr("Undo.Properties")
 					.arg(obs_source_get_name(source)),
@@ -383,6 +430,7 @@ void OBSBasicProperties::on_buttonBox_clicked(QAbstractButton *button)
 			obs_data_apply(settings, oldSettings);
 		else
 			obs_source_update(source, oldSettings);
+		RestoreAudioSettings();
 
 		close();
 
@@ -474,9 +522,179 @@ void OBSBasicProperties::Cleanup()
 		OBSBasicProperties::DrawTransitionPreview, this);
 }
 
+static bool MonitoringFeedbackRisk(OBSBasic *main)
+{
+	QString monitoringDevice = QT_UTF8(config_get_string(
+		main->Config(), "Audio", "MonitoringDeviceId"));
+	if (monitoringDevice.isEmpty())
+		monitoringDevice = QStringLiteral("default");
+
+	for (int channel = 1; channel <= 2; ++channel) {
+		OBSSourceAutoRelease source = obs_get_output_source(channel);
+		if (!source)
+			continue;
+		OBSDataAutoRelease settings = obs_source_get_settings(source);
+		const QString device =
+			QT_UTF8(obs_data_get_string(settings, "device_id"));
+		if (!device.isEmpty() && device == monitoringDevice)
+			return true;
+	}
+	return false;
+}
+
+void OBSBasicProperties::BuildAudioPage()
+{
+	audioPage = new QWidget(this);
+	QFormLayout *audioLayout = new QFormLayout(audioPage);
+	audioLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+	audioLayout->setContentsMargins(12, 12, 12, 12);
+	audioLayout->setVerticalSpacing(10);
+
+	const QString sourceName = QT_UTF8(obs_source_get_name(source));
+	QDoubleSpinBox *volume = new QDoubleSpinBox(audioPage);
+	volume->setRange(-96.1, 26.0);
+	volume->setDecimals(1);
+	volume->setSingleStep(0.1);
+	volume->setSuffix(QStringLiteral(" dB"));
+	volume->setSpecialValueText(QStringLiteral("-inf dB"));
+	volume->setValue(obs_mul_to_db(obs_source_get_volume(source)));
+	volume->setAccessibleName(
+		QTStr("AudioRouting.Accessible.Volume").arg(sourceName));
+	connect(volume, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+		this, [this](double value) {
+			obs_source_set_volume(
+				source,
+				value <= -96.0 ? 0.0f : obs_db_to_mul(value));
+		});
+	audioLayout->addRow(QTStr("Basic.AdvAudio.Volume"), volume);
+
+	QCheckBox *mono = new QCheckBox(audioPage);
+	mono->setChecked((obs_source_get_flags(source) &
+			  OBS_SOURCE_FLAG_FORCE_MONO) != 0);
+	mono->setAccessibleName(
+		QTStr("AudioRouting.Accessible.Mono").arg(sourceName));
+	connect(mono, &QCheckBox::toggled, this, [this](bool enabled) {
+		uint32_t flags = obs_source_get_flags(source);
+		obs_source_set_flags(source,
+			enabled ? flags | OBS_SOURCE_FLAG_FORCE_MONO
+				: flags & ~OBS_SOURCE_FLAG_FORCE_MONO);
+	});
+	audioLayout->addRow(QTStr("Basic.AdvAudio.Mono"), mono);
+
+	QSlider *balance = new QSlider(Qt::Horizontal, audioPage);
+	balance->setRange(0, 100);
+	balance->setValue((int)std::round(
+		obs_source_get_balance_value(source) * 100.0f));
+	balance->setAccessibleName(
+		QTStr("AudioRouting.Accessible.Balance").arg(sourceName));
+	connect(balance, &QSlider::valueChanged, this, [this](int value) {
+		obs_source_set_balance_value(source, value / 100.0f);
+	});
+	audioLayout->addRow(QTStr("Basic.AdvAudio.Balance"), balance);
+
+	QSpinBox *sync = new QSpinBox(audioPage);
+	sync->setRange(-950, 20000);
+	sync->setSuffix(QStringLiteral(" ms"));
+	sync->setValue((int)(obs_source_get_sync_offset(source) / 1000000));
+	sync->setAccessibleName(
+		QTStr("AudioRouting.Accessible.Sync").arg(sourceName));
+	connect(sync, QOverload<int>::of(&QSpinBox::valueChanged), this,
+		[this](int value) {
+			obs_source_set_sync_offset(source,
+					   (int64_t)value * 1000000);
+		});
+	audioLayout->addRow(QTStr("Basic.AdvAudio.SyncOffset"), sync);
+
+	if (obs_audio_monitoring_available()) {
+		QComboBox *monitoring = new QComboBox(audioPage);
+		monitoring->addItem(QTStr("Basic.AdvAudio.Monitoring.None"),
+				    (int)OBS_MONITORING_TYPE_NONE);
+		monitoring->addItem(
+			QTStr("Basic.AdvAudio.Monitoring.MonitorOnly"),
+			(int)OBS_MONITORING_TYPE_MONITOR_ONLY);
+		monitoring->addItem(QTStr("Basic.AdvAudio.Monitoring.Both"),
+				    (int)OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT);
+		monitoring->setCurrentIndex(monitoring->findData(
+			(int)obs_source_get_monitoring_type(source)));
+		monitoring->setAccessibleName(
+			QTStr("AudioRouting.Accessible.Monitoring")
+				.arg(sourceName));
+
+		QLabel *warning = new QLabel(
+			QTStr("AudioRouting.MonitoringWarning"), audioPage);
+		warning->setWordWrap(true);
+		warning->setProperty("warning", true);
+		warning->setAccessibleName(
+			QTStr("AudioRouting.Accessible.Warning"));
+		warning->setVisible(
+			obs_source_get_monitoring_type(source) ==
+					OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT &&
+			MonitoringFeedbackRisk(main));
+
+		connect(monitoring,
+			QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+			[this, monitoring, warning](int index) {
+				const obs_monitoring_type requested =
+					(obs_monitoring_type)monitoring
+						->itemData(index)
+						.toInt();
+				obs_source_set_monitoring_type(source, requested);
+				main->AudioSourceMonitoringChanged(
+					source,
+					requested ==
+						OBS_MONITORING_TYPE_MONITOR_ONLY);
+				const obs_monitoring_type actual =
+					obs_source_get_monitoring_type(source);
+				if (actual != requested) {
+					const QSignalBlocker blocker(monitoring);
+					monitoring->setCurrentIndex(
+						monitoring->findData((int)actual));
+				}
+				warning->setVisible(
+					actual ==
+						OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT &&
+					MonitoringFeedbackRisk(main));
+			});
+		audioLayout->addRow(QTStr("Basic.AdvAudio.Monitoring"),
+				    monitoring);
+		audioLayout->addRow(warning);
+	}
+
+	tabs->addTab(audioPage, QTStr("Basic.PropertiesWindow.Audio"));
+}
+
+bool OBSBasicProperties::AudioSettingsChanged() const
+{
+	return obs_source_get_volume(source) != oldVolume ||
+	       obs_source_get_balance_value(source) != oldBalance ||
+	       obs_source_get_sync_offset(source) != oldSyncOffset ||
+	       obs_source_get_flags(source) != oldSourceFlags ||
+	       obs_source_get_monitoring_type(source) != oldMonitoringType;
+}
+
+bool OBSBasicProperties::CommitSourceName()
+{
+	if (!sourceNameEdit)
+		return true;
+	return main->RenameAudioRoutingSource(
+		main->GetAudioRoutingSourceIdentity(source), sourceNameEdit->text(),
+		this);
+}
+
+void OBSBasicProperties::RestoreAudioSettings()
+{
+	obs_source_set_volume(source, oldVolume);
+	obs_source_set_balance_value(source, oldBalance);
+	obs_source_set_sync_offset(source, oldSyncOffset);
+	obs_source_set_flags(source, oldSourceFlags);
+	obs_source_set_monitoring_type(source, oldMonitoringType);
+	main->AudioSourceMonitoringChanged(
+		source, oldMonitoringType == OBS_MONITORING_TYPE_MONITOR_ONLY);
+}
+
 void OBSBasicProperties::reject()
 {
-	if (!acceptClicked && (CheckSettings() != 0)) {
+	if (!provisionalCreation && !acceptClicked && (CheckSettings() != 0)) {
 		if (!ConfirmQuit()) {
 			return;
 		}
@@ -488,7 +706,7 @@ void OBSBasicProperties::reject()
 
 void OBSBasicProperties::closeEvent(QCloseEvent *event)
 {
-	if (!acceptClicked && (CheckSettings() != 0)) {
+	if (!provisionalCreation && !acceptClicked && (CheckSettings() != 0)) {
 		if (!ConfirmQuit()) {
 			event->ignore();
 			return;
@@ -513,7 +731,11 @@ int OBSBasicProperties::CheckSettings()
 	const char *oldSettingsJson = obs_data_get_json(oldSettings);
 	const char *currentSettingsJson = obs_data_get_json(currentSettings);
 
-	return strcmp(currentSettingsJson, oldSettingsJson);
+	return strcmp(currentSettingsJson, oldSettingsJson) ||
+	       AudioSettingsChanged() ||
+	       (sourceNameEdit &&
+		sourceNameEdit->text().trimmed() !=
+			QT_UTF8(obs_source_get_name(source)));
 }
 
 bool OBSBasicProperties::ConfirmQuit()
@@ -527,6 +749,8 @@ bool OBSBasicProperties::ConfirmQuit()
 
 	switch (button) {
 	case QMessageBox::Save:
+		if (!CommitSourceName())
+			return false;
 		acceptClicked = true;
 		if (view->DeferUpdate())
 			view->UpdateSettings();
@@ -534,6 +758,7 @@ bool OBSBasicProperties::ConfirmQuit()
 		break;
 	case QMessageBox::Discard:
 		obs_source_update(source, oldSettings);
+		RestoreAudioSettings();
 		break;
 	case QMessageBox::Cancel:
 		return false;

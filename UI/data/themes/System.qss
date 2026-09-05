@@ -11,6 +11,14 @@
 
 /* We need to set back the icons, or the preview wont stick. */
 
+* [themeID="audioModeMultiIconSmall"] {
+    qproperty-icon: url(:/res/images/audio-mode-multi.svg);
+}
+
+* [themeID="audioModeSingleIconSmall"] {
+    qproperty-icon: url(:/res/images/audio-mode-single.svg);
+}
+
 * [themeID="addIconSmall"] {
     qproperty-icon: url(:/res/images/plus.svg);
 }
@@ -231,6 +239,7 @@ OBSBasic {
     qproperty-groupIcon: url(:res/images/sources/group.svg);
     qproperty-sceneIcon: url(:res/images/sources/scene.svg);
     qproperty-defaultIcon: url(:res/images/sources/default.svg);
+    qproperty-audioProcessOutputIcon: url(:res/images/sources/windowaudio.svg);
 }
 
 /* Scene Tree */

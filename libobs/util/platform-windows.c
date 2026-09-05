@@ -433,7 +433,9 @@ static void resolve_install_root(struct dstr *out)
 	os_wcs_to_utf8_ptr(path_utf16, 0, &ptr);
 	dstr_init_move_array(out, ptr);
 	dstr_replace(out, "\\", "/");
-	for (int i = 0; i < 3; i++) {
+	/* OBS-PT flat layout (issue 049): the exe lives in bin/, so the Install
+	 * Root is two levels up (bin/OBS-PT.exe -> bin -> <Install Root>). */
+	for (int i = 0; i < 2; i++) {
 		char *slash = strrchr(out->array, '/');
 		if (!slash)
 			break;

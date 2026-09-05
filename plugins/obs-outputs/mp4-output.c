@@ -263,10 +263,13 @@ static int parse_custom_options(const char *opts_str)
 static bool mp4_output_start(void *data)
 {
 	struct mp4_output *out = data;
+	uint32_t capture_flags =
+		obs_output_get_audio_encoder(out->output, 0) ? 0
+							     : OBS_OUTPUT_VIDEO;
 
-	if (!obs_output_can_begin_data_capture(out->output, 0))
+	if (!obs_output_can_begin_data_capture(out->output, capture_flags))
 		return false;
-	if (!obs_output_initialize_encoders(out->output, 0))
+	if (!obs_output_initialize_encoders(out->output, capture_flags))
 		return false;
 
 	os_atomic_set_bool(&out->stopping, false);
@@ -298,7 +301,7 @@ static bool mp4_output_start(void *data)
 	/* Initialise muxer and start capture */
 	out->muxer = mp4_mux_create(out->output, &out->serializer, out->flags);
 	os_atomic_set_bool(&out->active, true);
-	obs_output_begin_data_capture(out->output, 0);
+	obs_output_begin_data_capture(out->output, capture_flags);
 
 	info("Writing Hybrid MP4 file '%s'...", out->path.array);
 	return true;

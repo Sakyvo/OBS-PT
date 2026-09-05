@@ -106,11 +106,15 @@ if(WIN32)
 		util/threading-windows.c
 		util/pipe-windows.c
 		util/platform-windows.c
+		util/windows/obfuscate.c
+		util/windows/window-helpers.c
 		libobs.rc)
 	set(libobs_PLATFORM_HEADERS
 		util/threading-windows.h
+		util/windows/obfuscate.h
 		util/windows/win-registry.h
 		util/windows/win-version.h
+		util/windows/window-helpers.h
 		util/windows/ComPtr.hpp
 		util/windows/CoTaskMemPtr.hpp
 		util/windows/HRError.hpp
@@ -123,7 +127,7 @@ if(WIN32)
 	set(libobs_audio_monitoring_HEADERS
 		audio-monitoring/win32/wasapi-output.h
 		)
-	set(libobs_PLATFORM_DEPS Avrt winmm)
+	set(libobs_PLATFORM_DEPS Avrt Dwmapi winmm)
 	if(MSVC)
 		set(libobs_PLATFORM_DEPS
 		${libobs_PLATFORM_DEPS}

@@ -25,6 +25,13 @@
 #include "window-basic-main.hpp"
 
 class OBSBasic;
+class QComboBox;
+class QLabel;
+
+enum class OBSBasicSourceSelectMode {
+	SceneItem,
+	CollectionAudio,
+};
 
 class OBSBasicSourceSelect : public QDialog {
 	Q_OBJECT
@@ -33,6 +40,14 @@ private:
 	std::unique_ptr<Ui::OBSBasicSourceSelect> ui;
 	const char *id;
 	undo_stack &undo_s;
+	QLabel *routeLabel = nullptr;
+	QComboBox *routeTrack = nullptr;
+	OBSBasicSourceSelectMode mode = OBSBasicSourceSelectMode::SceneItem;
+	bool routeRequired = false;
+	bool routeFixedMix = false;
+
+	int SelectedAudioTrack() const;
+	void UpdateAcceptEnabled();
 
 	static bool EnumSources(void *data, obs_source_t *source);
 	static bool EnumGroups(void *data, obs_source_t *source);
@@ -49,9 +64,13 @@ private slots:
 
 public:
 	OBSBasicSourceSelect(OBSBasic *parent, const char *id,
-			     undo_stack &undo_s);
+			     undo_stack &undo_s,
+			     OBSBasicSourceSelectMode mode =
+					     OBSBasicSourceSelectMode::SceneItem,
+			     int selectedEditorTrack = 0);
 
 	OBSSource newSource;
+	int InitialEditorTrack() const { return SelectedAudioTrack(); }
 
 	static void SourcePaste(SourceCopyInfo &info, bool duplicate);
 };

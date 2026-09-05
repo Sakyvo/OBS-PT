@@ -20,6 +20,7 @@ struct ffmpeg_cfg {
 	int audio_encoder_id;
 	const char *video_settings;
 	const char *audio_settings;
+	const char *audio_track_names[MAX_AUDIO_MIXES];
 	int audio_mix_count;
 	int audio_tracks;
 	enum AVPixelFormat format;

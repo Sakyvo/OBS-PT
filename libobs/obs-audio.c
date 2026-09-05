@@ -504,6 +504,9 @@ bool audio_callback(void *param, uint64_t start_ts_in, uint64_t end_ts_in,
 	source = data->first_audio_source;
 	while (source) {
 		push_audio_tree(NULL, source, audio);
+		if (os_atomic_load_bool(&source->audio_mix_root) &&
+		    da_find(audio->root_nodes, &source, 0) == DARRAY_INVALID)
+			da_push_back(audio->root_nodes, &source);
 		source = (struct obs_source *)source->next_audio_source;
 	}
 

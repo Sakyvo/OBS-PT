@@ -6,6 +6,8 @@
     <file>images/mute.svg</file>
     <file>images/refresh.svg</file>
     <file>images/no_sources.svg</file>
+    <file>images/audio-mode-multi.svg</file>
+    <file>images/audio-mode-single.svg</file>
     <file>images/minus.svg</file>
     <file>images/plus.svg</file>
     <file>images/down.svg</file>
@@ -43,6 +45,7 @@
     <file>images/sources/text.svg</file>
     <file>images/sources/window.svg</file>
     <file>images/sources/default.svg</file>
+    <file>images/sources/windowaudio.svg</file>
     <file>images/recording-active.svg</file>
     <file>images/recording-inactive.svg</file>
     <file>images/recording-pause.svg</file>

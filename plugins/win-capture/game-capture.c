@@ -1,18 +1,19 @@
 #include <inttypes.h>
 #include <obs-module.h>
 #include <obs-hotkey.h>
+#include <util/dstr.h>
 #include <util/platform.h>
 #include <util/threading.h>
+#include <util/windows/obfuscate.h>
+#include <util/windows/window-helpers.h>
 #include <windows.h>
 #include <dxgi.h>
 #include <util/sse-intrin.h>
 #include <util/util_uint64.h>
 #include <ipc-util/pipe.h>
-#include "obfuscate.h"
 #include "inject-library.h"
 #include "graphics-hook-info.h"
 #include "graphics-hook-ver.h"
-#include "window-helpers.h"
 #include "cursor-capture.h"
 #include "app-helpers.h"
 #include "nt-stuff.h"
@@ -31,6 +32,7 @@
 #define SETTING_CAPTURE_WINDOW       "window"
 #define SETTING_ACTIVE_WINDOW        "active_window"
 #define SETTING_WINDOW_PRIORITY      "priority"
+#define SETTING_JAVA_DETECTION_LENIENT "java_detection_lenient"
 #define SETTING_COMPATIBILITY        "sli_compatibility"
 #define SETTING_CURSOR               "capture_cursor"
 #define SETTING_TRANSPARENCY         "allow_transparency"
@@ -59,6 +61,7 @@
 #define TEXT_MATCH_TITLE         obs_module_text("WindowCapture.Priority.Title")
 #define TEXT_MATCH_CLASS         obs_module_text("WindowCapture.Priority.Class")
 #define TEXT_MATCH_EXE           obs_module_text("WindowCapture.Priority.Exe")
+#define TEXT_MATCH_PROCESS_NAME  obs_module_text("WindowCapture.Priority.ProcessName")
 #define TEXT_CAPTURE_CURSOR      obs_module_text("CaptureCursor")
 #define TEXT_LIMIT_FRAMERATE     obs_module_text("GameCapture.LimitFramerate")
 #define TEXT_CAPTURE_OVERLAYS    obs_module_text("GameCapture.CaptureOverlays")
@@ -99,6 +102,7 @@ struct game_capture_config {
 	char *class;
 	char *executable;
 	enum window_priority priority;
+	bool java_detection_lenient;
 	enum capture_mode mode;
 	bool cursor;
 	bool force_shmem;
@@ -133,6 +137,7 @@ struct game_capture {
 	struct dstr class;
 	struct dstr executable;
 	enum window_priority priority;
+	bool java_detection_lenient;
 	obs_hotkey_pair_id hotkey_pair;
 	volatile long hotkey_window;
 	volatile bool deactivate_hook;
@@ -288,7 +293,7 @@ static inline HANDLE open_process(DWORD desired_access, bool inherit_handle,
 	typedef HANDLE(WINAPI * PFN_OpenProcess)(DWORD, BOOL, DWORD);
 	static PFN_OpenProcess open_process_proc = NULL;
 	if (!open_process_proc)
-		open_process_proc = (PFN_OpenProcess)get_obfuscated_func(
+		open_process_proc = (PFN_OpenProcess)ms_get_obfuscated_func(
 			kernel32(), "NuagUykjcxr", 0x1B694B59451ULL);
 
 	return open_process_proc(desired_access, inherit_handle, process_id);
@@ -402,8 +407,8 @@ static inline void get_config(struct game_capture_config *cfg,
 {
 	const char *mode_str = NULL;
 
-	build_window_strings(window, &cfg->class, &cfg->title,
-			     &cfg->executable);
+	ms_build_window_strings(window, &cfg->class, &cfg->title,
+				&cfg->executable);
 
 	if (using_older_non_mode_format(settings)) {
 		bool any = obs_data_get_bool(settings, SETTING_ANY_FULLSCREEN);
@@ -421,6 +426,8 @@ static inline void get_config(struct game_capture_config *cfg,
 
 	cfg->priority = (enum window_priority)obs_data_get_int(
 		settings, SETTING_WINDOW_PRIORITY);
+	cfg->java_detection_lenient =
+		obs_data_get_bool(settings, SETTING_JAVA_DETECTION_LENIENT);
 	cfg->force_shmem = obs_data_get_bool(settings, SETTING_COMPATIBILITY);
 	cfg->cursor = obs_data_get_bool(settings, SETTING_CURSOR);
 	cfg->allow_transparency =
@@ -539,6 +546,7 @@ static void game_capture_update(void *data, obs_data_t *settings)
 		dstr_copy(&gc->class, gc->config.class);
 		dstr_copy(&gc->executable, gc->config.executable);
 		gc->priority = gc->config.priority;
+		gc->java_detection_lenient = gc->config.java_detection_lenient;
 	}
 
 	if (!gc->initial_config) {
@@ -1008,12 +1016,12 @@ static bool init_hook(struct game_capture *gc)
 	bool blacklisted_process = false;
 
 	if (gc->config.mode == CAPTURE_MODE_ANY) {
-		if (get_window_exe(&exe, gc->next_window)) {
+		if (ms_get_window_exe(&exe, gc->next_window)) {
 			info("attempting to hook fullscreen process: %s",
 			     exe.array);
 		}
 	} else {
-		if (get_window_exe(&exe, gc->next_window)) {
+		if (ms_get_window_exe(&exe, gc->next_window)) {
 			info("attempting to hook process: %s", exe.array);
 		}
 	}
@@ -1153,9 +1161,9 @@ static void get_selected_window(struct game_capture *gc)
 		os_utf8_to_wcs(gc->class.array, 0, class_w, 512);
 		window = FindWindowW(class_w, NULL);
 	} else {
-		window = find_window(INCLUDE_MINIMIZED, gc->priority,
-				     gc->class.array, gc->title.array,
-				     gc->executable.array);
+		window = ms_find_window(INCLUDE_MINIMIZED, gc->priority,
+					gc->class.array, gc->title.array,
+					gc->executable.array, gc->java_detection_lenient);
 	}
 
 	if (window) {
@@ -1766,12 +1774,12 @@ static void game_capture_tick(void *data, float seconds)
 		HWND hwnd = (HWND)(uintptr_t)os_atomic_load_long(
 			&gc->hotkey_window);
 
-		if (is_uwp_window(hwnd))
-			hwnd = get_uwp_actual_window(hwnd);
+		if (ms_is_uwp_window(hwnd))
+			hwnd = ms_get_uwp_actual_window(hwnd);
 
-		if (get_window_exe(&gc->executable, hwnd)) {
-			get_window_title(&gc->title, hwnd);
-			get_window_class(&gc->class, hwnd);
+		if (ms_get_window_exe(&gc->executable, hwnd)) {
+			ms_get_window_title(&gc->title, hwnd);
+			ms_get_window_class(&gc->class, hwnd);
 
 			gc->priority = WINDOW_PRIORITY_CLASS;
 			gc->retry_time = 10.0f * hook_rate_to_float(
@@ -2042,9 +2050,9 @@ static void game_capture_defaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, SETTING_COMPATIBILITY, false);
 	obs_data_set_default_bool(settings, SETTING_CURSOR, true);
 	obs_data_set_default_bool(settings, SETTING_TRANSPARENCY, false);
-	obs_data_set_default_bool(settings, SETTING_LIMIT_FRAMERATE, false);
+	obs_data_set_default_bool(settings, SETTING_LIMIT_FRAMERATE, true);
 	obs_data_set_default_bool(settings, SETTING_CAPTURE_OVERLAYS, false);
-	obs_data_set_default_bool(settings, SETTING_ANTI_CHEAT_HOOK, true);
+	obs_data_set_default_bool(settings, SETTING_ANTI_CHEAT_HOOK, false);
 	obs_data_set_default_int(settings, SETTING_HOOK_RATE,
 				 (int)HOOK_RATE_NORMAL);
 }
@@ -2071,63 +2079,11 @@ static bool mode_callback(obs_properties_t *ppts, obs_property_t *p,
 	return true;
 }
 
-static void insert_preserved_val(obs_property_t *p, const char *val, size_t idx)
-{
-	char *class = NULL;
-	char *title = NULL;
-	char *executable = NULL;
-	struct dstr desc = {0};
-
-	build_window_strings(val, &class, &title, &executable);
-
-	dstr_printf(&desc, "[%s]: %s", executable, title);
-	obs_property_list_insert_string(p, idx, desc.array, val);
-	obs_property_list_item_disable(p, idx, true);
-
-	dstr_free(&desc);
-	bfree(class);
-	bfree(title);
-	bfree(executable);
-}
-
-bool check_window_property_setting(obs_properties_t *ppts, obs_property_t *p,
-				   obs_data_t *settings, const char *val,
-				   size_t idx)
-{
-	const char *cur_val;
-	bool match = false;
-	size_t i = 0;
-
-	cur_val = obs_data_get_string(settings, val);
-	if (!cur_val) {
-		return false;
-	}
-
-	for (;;) {
-		const char *val = obs_property_list_item_string(p, i++);
-		if (!val)
-			break;
-
-		if (strcmp(val, cur_val) == 0) {
-			match = true;
-			break;
-		}
-	}
-
-	if (cur_val && *cur_val && !match) {
-		insert_preserved_val(p, cur_val, idx);
-		return true;
-	}
-
-	UNUSED_PARAMETER(ppts);
-	return false;
-}
-
 static bool window_changed_callback(obs_properties_t *ppts, obs_property_t *p,
 				    obs_data_t *settings)
 {
-	return check_window_property_setting(ppts, p, settings,
-					     SETTING_CAPTURE_WINDOW, 1);
+	return ms_check_window_property_setting(
+		ppts, p, settings, SETTING_CAPTURE_WINDOW, 1);
 }
 
 static BOOL CALLBACK EnumFirstMonitor(HMONITOR monitor, HDC hdc, LPRECT rc,
@@ -2201,7 +2157,7 @@ static obs_properties_t *game_capture_properties(void *data)
 				    OBS_COMBO_TYPE_LIST,
 				    OBS_COMBO_FORMAT_STRING);
 	obs_property_list_add_string(p, "", "");
-	fill_window_list(p, INCLUDE_MINIMIZED, window_not_blacklisted);
+	ms_fill_window_list(p, INCLUDE_MINIMIZED, window_not_blacklisted);
 
 	obs_property_set_modified_callback(p, window_changed_callback);
 
@@ -2211,6 +2167,8 @@ static obs_properties_t *game_capture_properties(void *data)
 	obs_property_list_add_int(p, TEXT_MATCH_TITLE, WINDOW_PRIORITY_TITLE);
 	obs_property_list_add_int(p, TEXT_MATCH_CLASS, WINDOW_PRIORITY_CLASS);
 	obs_property_list_add_int(p, TEXT_MATCH_EXE, WINDOW_PRIORITY_EXE);
+	obs_property_list_add_int(p, TEXT_MATCH_PROCESS_NAME,
+				  WINDOW_PRIORITY_PROCESS_NAME);
 
 	obs_properties_add_bool(ppts, SETTING_COMPATIBILITY,
 				TEXT_SLI_COMPATIBILITY);

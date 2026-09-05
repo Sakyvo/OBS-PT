@@ -148,7 +148,11 @@ function Merge-GlobalConfig {
 }
 
 function Merge-ProfileConfig {
-    param([string]$SourceProfile, [string]$TargetProfile)
+    param(
+        [string]$SourceProfile,
+        [string]$TargetProfile,
+        [bool]$IsActiveProfilePair = $false
+    )
 
     Copy-IfExists (Join-Path $SourceProfile 'service.json') `
         (Join-Path $TargetProfile 'service.json')
@@ -168,7 +172,6 @@ function Merge-ProfileConfig {
     Copy-IniSection $source $target 'Hotkeys'
 
     Copy-IniKeys $source $target 'Output' @(
-        'Mode',
         'DelayEnable',
         'DelaySec',
         'DelayPreserve',
@@ -194,7 +197,6 @@ function Merge-ProfileConfig {
         'QSVPreset',
         'x264Settings',
         'VodTrackEnabled',
-        'FilePath',
         'RecRB',
         'RecRBTime',
         'RecRBSize',
@@ -206,29 +208,22 @@ function Merge-ProfileConfig {
         'Encoder',
         'Rescale',
         'RescaleRes',
-        'TrackIndex',
         'VodTrackEnabled',
         'VodTrackIndex',
-        'Track1Bitrate',
-        'Track2Bitrate',
-        'Track3Bitrate',
-        'Track4Bitrate',
-        'Track5Bitrate',
-        'Track6Bitrate',
-        'Track1Name',
-        'Track2Name',
-        'Track3Name',
-        'Track4Name',
-        'Track5Name',
-        'Track6Name',
-        'RecFilePath',
-        'FFFilePath',
         'RecRB',
         'RecRBTime',
         'RecRBSize',
         'RecRBPrefix',
         'RecRBSuffix'
     )
+
+    # Recording directories are restored only from the old ACTIVE Profile.
+    # A same-named but inactive old Profile must never supply or overwrite
+    # them, and the three directories stay independent of each other.
+    if ($IsActiveProfilePair) {
+        Copy-IniKeys $source $target 'SimpleOutput' @('FilePath')
+        Copy-IniKeys $source $target 'AdvOut' @('RecFilePath', 'FFFilePath')
+    }
 
     Write-Ini $targetIniPath $target
 }
@@ -357,7 +352,9 @@ if (-not (Test-Path -LiteralPath $BackupRoot) -or
     exit 0
 }
 
-Merge-GlobalConfig
+try {
+
+    Merge-GlobalConfig
 
 $backupGlobal = Read-Ini (Join-Path $BackupRoot 'global.ini')
 $targetGlobal = Read-Ini (Join-Path $TargetRoot 'global.ini')
@@ -368,7 +365,7 @@ $script:ProfilePairs = New-Object System.Collections.ArrayList
 $script:ProfilePairSeen = @{}
 
 function Add-ProfilePair {
-    param([string]$Source, [string]$Target)
+    param([string]$Source, [string]$Target, [bool]$IsActive = $false)
 
     if (-not (Test-Path -LiteralPath $Source -PathType Container) -or
         -not (Test-Path -LiteralPath $Target -PathType Container)) {
@@ -384,6 +381,7 @@ function Add-ProfilePair {
     [void]$script:ProfilePairs.Add([pscustomobject]@{
         Source = $Source
         Target = $Target
+        IsActive = $IsActive
     })
 }
 
@@ -396,13 +394,24 @@ if ((Test-Path -LiteralPath $backupProfilesRoot) -and
     $oldActiveProfile = Get-IniValue $backupGlobal 'Basic' 'ProfileDir'
     $newActiveProfile = Get-IniValue $targetGlobal 'Basic' 'ProfileDir'
     if ($oldActiveProfile -and $newActiveProfile) {
-        Add-ProfilePair (Join-Path $backupProfilesRoot $oldActiveProfile) `
-            (Join-Path $targetProfilesRoot $newActiveProfile)
+        $activeSource = Join-Path $backupProfilesRoot $oldActiveProfile
+        $activeTarget = Join-Path $targetProfilesRoot $newActiveProfile
+        $activeKey = "$activeSource|$activeTarget"
+        # The same-name sweep may already hold this pair; promote it rather
+        # than letting the duplicate check drop the active flag.
+        $existing = $script:ProfilePairs | Where-Object {
+            "$($_.Source)|$($_.Target)" -eq $activeKey
+        }
+        if ($existing) {
+            $existing | ForEach-Object { $_.IsActive = $true }
+        } else {
+            Add-ProfilePair $activeSource $activeTarget $true
+        }
     }
 }
 
 foreach ($pair in $script:ProfilePairs) {
-    Merge-ProfileConfig $pair.Source $pair.Target
+    Merge-ProfileConfig $pair.Source $pair.Target $pair.IsActive
 }
 
 $backupScenesRoot = Join-Path $BackupRoot 'basic\scenes'
@@ -446,4 +455,17 @@ if ((Test-Path -LiteralPath $backupScenesRoot) -and
 
 foreach ($pair in $script:ScenePairs) {
     Merge-SceneHotkeys $pair.Source $pair.Target
+}
+
+} catch {
+    # Persist the actual failure next to the target so a merge
+    # that dies mid-install leaves a diagnosable log instead of
+    # only the NSIS install log.
+    $log = Join-Path (Split-Path -Parent $TargetRoot) 'obspt-preserve-error.log'
+    try {
+        [IO.File]::WriteAllText($log,
+            [string]$_.Exception + [Environment]::NewLine +
+            $_.ScriptStackTrace)
+    } catch {}
+    throw
 }

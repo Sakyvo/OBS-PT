@@ -713,75 +713,83 @@ void OBSBasicSettings::UpdateVodTrackSetting()
 
 	if (!enableVodTrack) {
 		delete vodTrackCheckbox;
-		delete vodTrackContainer;
-		delete simpleVodTrack;
+		delete vodTrackSelector;
+		delete simpleVodTrackContainer;
 		return;
 	}
 
 	/* -------------------------------------- */
 	/* simple output mode vod track widgets   */
 
-	bool simpleAdv = ui->simpleOutAdvanced->isChecked();
 	bool vodTrackEnabled = config_get_bool(main->Config(), "SimpleOutput",
 					       "VodTrackEnabled");
+	int trackIndex =
+		config_get_int(main->Config(), "AdvOut", "VodTrackIndex");
+	if (trackIndex < OBSPTAudioRoutingModel::FirstEditorTrack ||
+	    trackIndex > OBSPTAudioRoutingModel::LastEditorTrack)
+		trackIndex = OBSPTAudioRoutingModel::FirstEditorTrack;
 
-	simpleVodTrack = new QCheckBox(this);
-	simpleVodTrack->setText(
-		QTStr("Basic.Settings.Output.Simple.TwitchVodTrack"));
-	simpleVodTrack->setVisible(simpleAdv);
+	simpleVodTrack = new QCheckBox(QTStr("AudioRouting.VodTrack"), this);
 	simpleVodTrack->setChecked(vodTrackEnabled);
+	simpleVodTrack->setMinimumWidth(170);
+	simpleVodTrackSelector = new QComboBox(this);
+	for (int track = OBSPTAudioRoutingModel::FirstEditorTrack;
+	     track <= OBSPTAudioRoutingModel::LastEditorTrack; ++track) {
+		simpleVodTrackSelector->addItem(
+			QTStr("AudioRouting.TrackLabel")
+				.arg(track)
+				.arg(main->GetAudioRoutingModel().TrackName(track)),
+			track);
+	}
+	simpleVodTrackSelector->setCurrentIndex(
+		simpleVodTrackSelector->findData(trackIndex));
+	simpleVodTrackSelector->setEnabled(vodTrackEnabled);
 
 	int pos;
 	ui->simpleStreamingLayout->getWidgetPosition(ui->simpleOutAdvanced,
 						     &pos, nullptr);
-	ui->simpleStreamingLayout->insertRow(pos + 1, nullptr, simpleVodTrack);
+	ui->simpleStreamingLayout->insertRow(pos + 1, simpleVodTrack,
+					     simpleVodTrackSelector);
 
 	HookWidget(simpleVodTrack, SIGNAL(clicked(bool)),
 		   SLOT(OutputsChanged()));
-	connect(ui->simpleOutAdvanced, SIGNAL(toggled(bool)),
-		simpleVodTrack.data(), SLOT(setVisible(bool)));
+	HookWidget(simpleVodTrackSelector, SIGNAL(currentIndexChanged(int)),
+		   SLOT(OutputsChanged()));
+	connect(simpleVodTrack, &QCheckBox::toggled,
+		simpleVodTrackSelector.data(), &QWidget::setEnabled);
 
 	/* -------------------------------------- */
 	/* advanced output mode vod track widgets */
 
 	vodTrackCheckbox = new QCheckBox(this);
-	vodTrackCheckbox->setText(
-		QTStr("Basic.Settings.Output.Adv.TwitchVodTrack"));
-	vodTrackCheckbox->setLayoutDirection(Qt::RightToLeft);
-
-	vodTrackContainer = new QWidget(this);
-	QHBoxLayout *vodTrackLayout = new QHBoxLayout();
-	for (int i = 0; i < MAX_AUDIO_MIXES; i++) {
-		vodTrack[i] = new QRadioButton(QString::number(i + 1));
-		vodTrackLayout->addWidget(vodTrack[i]);
-
-		HookWidget(vodTrack[i], SIGNAL(clicked(bool)),
-			   SLOT(OutputsChanged()));
+	vodTrackCheckbox->setText(QTStr("AudioRouting.VodTrack"));
+	/* The label column of advOutTopLayout is right-aligned with a 170px
+	 * minimum (see label_28). Match that minimum so the selector below
+	 * starts at the same x and grows to the same width as 速率控制 etc. */
+	vodTrackCheckbox->setMinimumWidth(170);
+	vodTrackSelector = new QComboBox(this);
+	for (int track = OBSPTAudioRoutingModel::FirstEditorTrack;
+	     track <= OBSPTAudioRoutingModel::LastEditorTrack; ++track) {
+		vodTrackSelector->addItem(
+			QTStr("AudioRouting.TrackLabel")
+				.arg(track)
+				.arg(main->GetAudioRoutingModel().TrackName(track)),
+			track);
 	}
 
 	HookWidget(vodTrackCheckbox, SIGNAL(clicked(bool)),
 		   SLOT(OutputsChanged()));
-
-	vodTrackLayout->addStretch();
-	vodTrackLayout->setContentsMargins(0, 0, 0, 0);
-
-	vodTrackContainer->setLayout(vodTrackLayout);
-
-	ui->advOutTopLayout->insertRow(2, vodTrackCheckbox, vodTrackContainer);
+	HookWidget(vodTrackSelector, SIGNAL(currentIndexChanged(int)),
+		   SLOT(OutputsChanged()));
+	ui->advOutTopLayout->insertRow(2, vodTrackCheckbox, vodTrackSelector);
 
 	vodTrackEnabled =
 		config_get_bool(main->Config(), "AdvOut", "VodTrackEnabled");
 	vodTrackCheckbox->setChecked(vodTrackEnabled);
-	vodTrackContainer->setEnabled(vodTrackEnabled);
-
-	connect(vodTrackCheckbox, SIGNAL(clicked(bool)), vodTrackContainer,
-		SLOT(setEnabled(bool)));
-
-	int trackIndex =
-		config_get_int(main->Config(), "AdvOut", "VodTrackIndex");
-	for (int i = 0; i < MAX_AUDIO_MIXES; i++) {
-		vodTrack[i]->setChecked((i + 1) == trackIndex);
-	}
+	vodTrackSelector->setCurrentIndex(vodTrackSelector->findData(trackIndex));
+	vodTrackSelector->setEnabled(vodTrackEnabled);
+	connect(vodTrackCheckbox, &QCheckBox::toggled, vodTrackSelector.data(),
+		&QWidget::setEnabled);
 }
 
 OBSService OBSBasicSettings::GetStream1Service()

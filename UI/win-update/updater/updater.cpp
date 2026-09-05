@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2017-2018 Hugh Bailey <obs.jim@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -584,9 +584,9 @@ static bool NonCorePackageInstalled(const char *name)
 	} else {
 		if (strcmp(name, "obs-browser") == 0) {
 			return FileExists(
-				L"obs-plugins\\64bit\\obs-browser.dll");
+				L"obs-plugins\\obs-browser.dll");
 		} else if (strcmp(name, "realsense") == 0) {
-			return FileExists(L"obs-plugins\\64bit\\win-ivcam.dll");
+			return FileExists(L"obs-plugins\\win-ivcam.dll");
 		}
 	}
 

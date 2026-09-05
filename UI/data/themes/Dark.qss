@@ -255,6 +255,14 @@ QToolButton:pressed {
     border-radius: none;
 }
 
+* [themeID="audioModeMultiIconSmall"] {
+    qproperty-icon: url(./Dark/audio-mode-multi.svg);
+}
+
+* [themeID="audioModeSingleIconSmall"] {
+    qproperty-icon: url(./Dark/audio-mode-single.svg);
+}
+
 * [themeID="addIconSmall"] {
     qproperty-icon: url(./Dark/plus.svg);
 }
@@ -807,6 +815,7 @@ OBSBasic {
     qproperty-groupIcon: url(./Dark/sources/group.svg);
     qproperty-sceneIcon: url(./Dark/sources/scene.svg);
     qproperty-defaultIcon: url(./Dark/sources/default.svg);
+    qproperty-audioProcessOutputIcon: url(./Dark/sources/windowaudio.svg);
 }
 
 /* Scene Tree */

@@ -676,6 +676,7 @@ struct obs_source {
 	bool audio_pending;
 	bool pending_stop;
 	bool audio_active;
+	volatile bool audio_mix_root;
 	bool user_muted;
 	bool muted;
 	struct obs_source *next_audio_source;

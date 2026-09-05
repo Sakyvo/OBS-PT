@@ -26,6 +26,9 @@
 
 class OBSPropertiesView;
 class OBSBasic;
+class QTabWidget;
+class QWidget;
+class QLineEdit;
 
 class OBSBasicProperties : public QDialog {
 	Q_OBJECT
@@ -35,6 +38,8 @@ private:
 
 	OBSBasic *main;
 	bool acceptClicked;
+	bool provisionalCreation = false;
+	bool allowSourceRename = false;
 
 	OBSSource source;
 	OBSSignal removedSignal;
@@ -44,6 +49,14 @@ private:
 	OBSPropertiesView *view;
 	QDialogButtonBox *buttonBox;
 	QSplitter *windowSplitter;
+	QTabWidget *tabs = nullptr;
+	QWidget *audioPage = nullptr;
+	QLineEdit *sourceNameEdit = nullptr;
+	float oldVolume = 1.0f;
+	float oldBalance = 0.5f;
+	int64_t oldSyncOffset = 0;
+	uint32_t oldSourceFlags = 0;
+	obs_monitoring_type oldMonitoringType = OBS_MONITORING_TYPE_NONE;
 
 	OBSSourceAutoRelease sourceA;
 	OBSSourceAutoRelease sourceB;
@@ -59,16 +72,23 @@ private:
 	bool ConfirmQuit();
 	int CheckSettings();
 	void Cleanup();
+	void BuildAudioPage();
+	bool AudioSettingsChanged() const;
+	void RestoreAudioSettings();
+	bool CommitSourceName();
 
 private slots:
 	void on_buttonBox_clicked(QAbstractButton *button);
 	void AddPreviewButton();
 
 public:
-	OBSBasicProperties(QWidget *parent, OBSSource source_);
+	OBSBasicProperties(QWidget *parent, OBSSource source_,
+			   bool provisionalCreation_ = false,
+			   bool allowSourceRename_ = false);
 	~OBSBasicProperties();
 
 	void Init();
+	bool WasAccepted() const { return acceptClicked; }
 
 protected:
 	virtual void closeEvent(QCloseEvent *event) override;

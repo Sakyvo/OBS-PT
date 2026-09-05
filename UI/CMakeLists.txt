@@ -235,6 +235,7 @@ set(obs_SOURCES
 	../deps/json11/json11.cpp
 	obs-app.cpp
 	obspt-bootstrap.cpp
+	obspt-elevated-launch-model.cpp
 	window-dock.cpp
 	api-interface.cpp
 	window-basic-main.cpp
@@ -246,6 +247,13 @@ set(obs_SOURCES
 	window-basic-auto-config.cpp
 	window-basic-main-outputs.cpp
 	window-basic-source-select.cpp
+	obspt-audio-routing-model.cpp
+	obspt-audio-routing-table.cpp
+	obspt-audio-routing-dock.cpp
+	obspt-routing-menu-style.cpp
+	obspt-toolbar-theme.cpp
+	obspt-record-path-policy.cpp
+	obspt-audio-source-creation-model.cpp
 	window-basic-settings-stream.cpp
 	window-basic-main-screenshot.cpp
 	window-basic-auto-config-test.cpp
@@ -312,6 +320,7 @@ set(obs_HEADERS
 	../deps/json11/json11.hpp
 	obs-app.hpp
 	obspt-bootstrap.h
+	obspt-elevated-launch-model.hpp
 	platform.hpp
 	window-dock.hpp
 	window-main.hpp
@@ -324,6 +333,13 @@ set(obs_HEADERS
 	window-basic-auto-config.hpp
 	window-basic-main-outputs.hpp
 	window-basic-source-select.hpp
+	obspt-audio-routing-model.hpp
+	obspt-audio-routing-table.hpp
+	obspt-audio-routing-dock.hpp
+	obspt-routing-menu-style.hpp
+	obspt-toolbar-theme.hpp
+	obspt-record-path-policy.hpp
+	obspt-audio-source-creation-model.hpp
 	window-basic-about.hpp
 	window-basic-welcome.hpp
 	window-basic-status-bar.hpp
@@ -481,11 +497,60 @@ target_link_libraries(obs
 	${obs_PLATFORM_LIBRARIES})
 
 if(WIN32 AND BUILD_TESTS)
+	add_executable(obspt-audio-routing-model-test
+		obspt-audio-routing-model-test.cpp
+		obspt-audio-routing-model.cpp)
+	target_link_libraries(obspt-audio-routing-model-test Qt5::Core)
+	set_target_properties(obspt-audio-routing-model-test PROPERTIES
+		FOLDER "tests and examples")
+
+	add_executable(obspt-audio-routing-table-test
+		obspt-audio-routing-table-test.cpp
+		obspt-audio-routing-table.cpp)
+	target_link_libraries(obspt-audio-routing-table-test Qt5::Widgets)
+	set_target_properties(obspt-audio-routing-table-test PROPERTIES
+		FOLDER "tests and examples")
+
+	add_executable(obspt-routing-menu-style-test
+		obspt-routing-menu-style-test.cpp
+		obspt-routing-menu-style.cpp)
+	target_link_libraries(obspt-routing-menu-style-test Qt5::Widgets)
+	set_target_properties(obspt-routing-menu-style-test PROPERTIES
+		FOLDER "tests and examples")
+
+	add_executable(obspt-record-path-policy-test
+		obspt-record-path-policy-test.cpp
+		obspt-record-path-policy.cpp)
+	set_target_properties(obspt-record-path-policy-test PROPERTIES
+		FOLDER "tests and examples")
+
+	add_executable(obspt-audio-routing-toolbar-test
+		obspt-audio-routing-toolbar-test.cpp
+		obspt-toolbar-theme.cpp)
+	target_link_libraries(obspt-audio-routing-toolbar-test Qt5::Widgets)
+	target_compile_definitions(obspt-audio-routing-toolbar-test PRIVATE
+		OBSPT_THEME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/themes")
+	set_target_properties(obspt-audio-routing-toolbar-test PROPERTIES
+		FOLDER "tests and examples")
+
+	add_executable(obspt-audio-source-creation-model-test
+		obspt-audio-source-creation-model-test.cpp
+		obspt-audio-source-creation-model.cpp)
+	target_link_libraries(obspt-audio-source-creation-model-test Qt5::Core)
+	set_target_properties(obspt-audio-source-creation-model-test PROPERTIES
+		FOLDER "tests and examples")
+
 	add_executable(obspt-update-model-test
 		win-update/obspt-update-model-test.cpp
 		win-update/obspt-update-model.cpp)
 	target_link_libraries(obspt-update-model-test Qt5::Core)
 	set_target_properties(obspt-update-model-test PROPERTIES
+		FOLDER "tests and examples")
+
+	add_executable(obspt-elevated-launch-model-test
+		obspt-elevated-launch-model-test.cpp
+		obspt-elevated-launch-model.cpp)
+	set_target_properties(obspt-elevated-launch-model-test PROPERTIES
 		FOLDER "tests and examples")
 endif()
 

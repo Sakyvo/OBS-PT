@@ -413,6 +413,11 @@ void OBSBasic::on_actionExportSceneCollection_triggered()
 
 void OBSBasic::ChangeSceneCollection()
 {
+	if (AudioRoutingLocked()) {
+		QMessageBox::warning(this, QTStr("AudioRouting.Locked.Title"),
+				     AudioRoutingLockDescription());
+		return;
+	}
 	QAction *action = reinterpret_cast<QAction *>(sender());
 	std::string fileName;
 

@@ -585,6 +585,8 @@ void OBSAdvAudioCtrl::monitoringTypeChanged(int index)
 	obs_monitoring_type mt =
 		(obs_monitoring_type)monitoringType->itemData(index).toInt();
 	obs_source_set_monitoring_type(source, mt);
+	OBSBasic::Get()->AudioSourceMonitoringChanged(
+		source, mt == OBS_MONITORING_TYPE_MONITOR_ONLY);
 
 	const char *type = nullptr;
 
@@ -608,6 +610,8 @@ void OBSAdvAudioCtrl::monitoringTypeChanged(int index)
 		OBSSourceAutoRelease source =
 			obs_get_source_by_name(name.c_str());
 		obs_source_set_monitoring_type(source, val);
+		OBSBasic::Get()->AudioSourceMonitoringChanged(
+			source, val == OBS_MONITORING_TYPE_MONITOR_ONLY);
 	};
 
 	OBSBasic::Get()->undo_s.add_action(

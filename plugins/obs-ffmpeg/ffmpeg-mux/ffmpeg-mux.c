@@ -436,6 +436,7 @@ static void create_audio_stream(struct ffmpeg_mux *ffm, int idx)
 		return;
 
 	av_dict_set(&stream->metadata, "title", ffm->audio[idx].name, 0);
+	stream->disposition = idx == 0 ? AV_DISPOSITION_DEFAULT : 0;
 
 	stream->time_base = (AVRational){1, ffm->audio[idx].sample_rate};
 

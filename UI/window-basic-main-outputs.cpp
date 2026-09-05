@@ -35,6 +35,15 @@ static inline const char *StandardRecordingOutputId(const char *format)
 	return IsHybridMP4Format(format) ? "mp4_output" : "ffmpeg_muxer";
 }
 
+static int ConfiguredVodTrack(OBSBasic *main)
+{
+	int track = config_get_int(main->Config(), "AdvOut", "VodTrackIndex");
+	return track >= OBSPTAudioRoutingModel::FirstEditorTrack &&
+			       track <= OBSPTAudioRoutingModel::LastEditorTrack
+		       ? track
+		       : OBSPTAudioRoutingModel::FirstEditorTrack;
+}
+
 static void ShowStartRecordingFailed(OBSBasic *main, QString reason,
 				     bool hybridMP4)
 {
@@ -93,6 +102,10 @@ static void OBSStopStreaming(void *data, calldata_t *params)
 	QString arg_last_error = QString::fromUtf8(last_error);
 
 	output->streamingActive = false;
+	if (output->streamingTopologySession) {
+		output->streamingTopologySession = false;
+		output->main->EndAudioRoutingSession();
+	}
 	output->delayActive = false;
 	os_atomic_set_bool(&streaming_active, false);
 	QMetaObject::invokeMethod(output->main, "StreamingStop",
@@ -120,6 +133,7 @@ static void OBSStopRecording(void *data, calldata_t *params)
 	QString arg_last_error = QString::fromUtf8(last_error);
 
 	output->recordingActive = false;
+	output->main->EndAudioRoutingSession();
 	os_atomic_set_bool(&recording_active, false);
 	os_atomic_set_bool(&recording_paused, false);
 	QMetaObject::invokeMethod(output->main, "RecordingStop",
@@ -154,6 +168,7 @@ static void OBSStopReplayBuffer(void *data, calldata_t *params)
 	int code = (int)calldata_int(params, "code");
 
 	output->replayBufferActive = false;
+	output->main->EndAudioRoutingSession();
 	os_atomic_set_bool(&replaybuf_active, false);
 	QMetaObject::invokeMethod(output->main, "ReplayBufferStop",
 				  Q_ARG(int, code));
@@ -276,11 +291,11 @@ bool BasicOutputHandler::VirtualCamActive() const
 struct SimpleOutput : BasicOutputHandler {
 	OBSEncoder aacStreaming;
 	OBSEncoder h264Streaming;
-	OBSEncoder aacRecording;
+	OBSEncoder aacRecording[MAX_AUDIO_MIXES];
 	OBSEncoder aacArchive;
 	OBSEncoder h264Recording;
 
-	string aacRecEncID;
+	string aacRecEncID[MAX_AUDIO_MIXES];
 	string aacStreamEncID;
 	string aacArchiveEncID;
 
@@ -316,7 +331,7 @@ struct SimpleOutput : BasicOutputHandler {
 	void UpdateRecording();
 	bool ConfigureRecording(bool useReplayBuffer);
 
-	void SetupVodTrack(obs_service_t *service);
+	bool SetupVodTrack(obs_service_t *service);
 
 	virtual bool SetupStreaming(obs_service_t *service) override;
 	virtual bool StartStreaming(obs_service_t *service) override;
@@ -379,7 +394,7 @@ void SimpleOutput::LoadRecordingPreset()
 
 	if (strcmp(quality, "Stream") == 0) {
 		h264Recording = h264Streaming;
-		aacRecording = aacStreaming;
+		aacRecording[0] = aacStreaming;
 		usingRecordingPreset = false;
 		return;
 
@@ -409,7 +424,8 @@ void SimpleOutput::LoadRecordingPreset()
 		}
 		usingRecordingPreset = true;
 
-		if (!CreateAACEncoder(aacRecording, aacRecEncID, 192,
+		if (!CreateAACEncoder(aacRecording[0], aacRecEncID[0],
+				      GetAudioBitrate(),
 				      "simple_aac_recording", 0))
 			throw "Failed to create aac recording encoder "
 			      "(simple output)";
@@ -441,11 +457,22 @@ SimpleOutput::SimpleOutput(OBSBasic *main_) : BasicOutputHandler(main_)
 	if (!CreateAACEncoder(aacStreaming, aacStreamEncID, GetAudioBitrate(),
 			      "simple_aac", 0))
 		throw "Failed to create aac streaming encoder (simple output)";
+	const int vodTrack = ConfiguredVodTrack(main) - 1;
 	if (!CreateAACEncoder(aacArchive, aacArchiveEncID, GetAudioBitrate(),
-			      SIMPLE_ARCHIVE_NAME, 1))
+			      SIMPLE_ARCHIVE_NAME, vodTrack))
 		throw "Failed to create aac arhive encoder (simple output)";
 
 	LoadRecordingPreset();
+	if (!ffmpegOutput) {
+		for (int i = 1; i < MAX_AUDIO_MIXES; ++i) {
+			char name[32];
+			snprintf(name, sizeof(name), "simple_recording_aac%d", i);
+			if (!CreateAACEncoder(aacRecording[i], aacRecEncID[i],
+					      GetAudioBitrate(), name, i))
+				throw "Failed to create additional recording audio "
+				      "encoder (simple output)";
+		}
+	}
 
 	if (!ffmpegOutput) {
 		bool useReplayBuffer = config_get_bool(main->Config(),
@@ -510,8 +537,8 @@ SimpleOutput::SimpleOutput(OBSBasic *main_) : BasicOutputHandler(main_)
 
 int SimpleOutput::GetAudioBitrate() const
 {
-	int bitrate = (int)config_get_uint(main->Config(), "SimpleOutput",
-					   "ABitrate");
+	int bitrate =
+		(int)config_get_uint(main->Config(), "Output", "AudioBitrate");
 
 	return FindClosestAvailableAACBitrate(bitrate);
 }
@@ -585,10 +612,13 @@ void SimpleOutput::Update()
 void SimpleOutput::UpdateRecordingAudioSettings()
 {
 	OBSDataAutoRelease settings = obs_data_create();
-	obs_data_set_int(settings, "bitrate", 192);
+	obs_data_set_int(settings, "bitrate", GetAudioBitrate());
 	obs_data_set_string(settings, "rate_control", "CBR");
 
-	obs_encoder_update(aacRecording, settings);
+	for (int i = 0; i < MAX_AUDIO_MIXES; ++i) {
+		if (aacRecording[i])
+			obs_encoder_update(aacRecording[i], settings);
+	}
 }
 
 #define CROSS_DIST_CUTOFF 2000.0
@@ -734,7 +764,6 @@ void SimpleOutput::UpdateRecordingSettings()
 	} else if (videoEncoder == SIMPLE_ENCODER_NVENC) {
 		UpdateRecordingSettings_nvenc(crf);
 	}
-	UpdateRecordingAudioSettings();
 }
 
 inline void SimpleOutput::SetupOutputs()
@@ -750,8 +779,11 @@ inline void SimpleOutput::SetupOutputs()
 					     obs_get_audio());
 		} else {
 			obs_encoder_set_video(h264Recording, obs_get_video());
-			obs_encoder_set_audio(aacRecording, obs_get_audio());
 		}
+	}
+	if (!ffmpegOutput) {
+		for (int i = 0; i < MAX_AUDIO_MIXES; ++i)
+			obs_encoder_set_audio(aacRecording[i], obs_get_audio());
 	}
 }
 
@@ -869,6 +901,23 @@ bool SimpleOutput::SetupStreaming(obs_service_t *service)
 
 static inline bool ServiceSupportsVodTrack(const char *service);
 
+static bool VodTrackEnabledForService(OBSBasic *main, obs_service_t *service,
+				      bool simpleOutput)
+{
+	bool enabled = config_get_bool(main->Config(),
+				       simpleOutput ? "SimpleOutput" : "AdvOut",
+				       "VodTrackEnabled");
+	const char *id = obs_service_get_id(service);
+	if (strcmp(id, "rtmp_custom") == 0) {
+		return enabled && config_get_bool(GetGlobalConfig(), "General",
+						 "EnableCustomServerVodTrack");
+	}
+
+	OBSDataAutoRelease settings = obs_service_get_settings(service);
+	return enabled && ServiceSupportsVodTrack(
+				  obs_data_get_string(settings, "service"));
+}
+
 static void clear_archive_encoder(obs_output_t *output,
 				  const char *expected_name)
 {
@@ -886,28 +935,28 @@ static void clear_archive_encoder(obs_output_t *output,
 		obs_output_set_audio_encoder(output, nullptr, 1);
 }
 
-void SimpleOutput::SetupVodTrack(obs_service_t *service)
+bool SimpleOutput::SetupVodTrack(obs_service_t *service)
 {
-	bool advanced =
-		config_get_bool(main->Config(), "SimpleOutput", "UseAdvanced");
-	bool enable = config_get_bool(main->Config(), "SimpleOutput",
-				      "VodTrackEnabled");
-	bool enableForCustomServer = config_get_bool(
-		GetGlobalConfig(), "General", "EnableCustomServerVodTrack");
-
-	OBSDataAutoRelease settings = obs_service_get_settings(service);
-	const char *name = obs_data_get_string(settings, "service");
-
-	const char *id = obs_service_get_id(service);
-	if (strcmp(id, "rtmp_custom") == 0)
-		enable = enableForCustomServer ? enable : false;
-	else
-		enable = advanced && enable && ServiceSupportsVodTrack(name);
-
-	if (enable)
-		obs_output_set_audio_encoder(streamOutput, aacArchive, 1);
-	else
+	if (!VodTrackEnabledForService(main, service, true)) {
 		clear_archive_encoder(streamOutput, SIMPLE_ARCHIVE_NAME);
+		return true;
+	}
+
+	const int vodTrack = ConfiguredVodTrack(main);
+	const QVector<OBSPTAudioOutputTrack> topology =
+		main->GetAudioStreamingTopology(vodTrack);
+	if (topology.size() < 2 || topology[1].number != vodTrack) {
+		QMessageBox::critical(
+			main, QTStr("Output.StartStreamFailed"),
+			QTStr("Output.VodTrackEmpty")
+				.arg(vodTrack)
+				.arg(main->GetAudioRoutingModel().TrackName(vodTrack)));
+		main->ShowAudioRoutingPanel();
+		return false;
+	}
+
+	obs_output_set_audio_encoder(streamOutput, aacArchive, 1);
+	return true;
 }
 
 bool SimpleOutput::StartStreaming(obs_service_t *service)
@@ -948,10 +997,24 @@ bool SimpleOutput::StartStreaming(obs_service_t *service)
 
 	obs_output_set_reconnect_settings(streamOutput, maxRetries, retryDelay);
 
-	SetupVodTrack(service);
+	if (VodTrackEnabledForService(main, service, true)) {
+		main->BeginAudioRoutingSession();
+		streamingTopologySession = true;
+	}
+	if (!SetupVodTrack(service)) {
+		if (streamingTopologySession) {
+			streamingTopologySession = false;
+			main->EndAudioRoutingSession();
+		}
+		return false;
+	}
 
 	if (obs_output_start(streamOutput)) {
 		return true;
+	}
+	if (streamingTopologySession) {
+		streamingTopologySession = false;
+		main->EndAudioRoutingSession();
 	}
 
 	const char *error = obs_output_get_last_error(streamOutput);
@@ -971,6 +1034,8 @@ void SimpleOutput::UpdateRecording()
 {
 	if (replayBufferActive || recordingActive)
 		return;
+	const char *format =
+		config_get_string(main->Config(), "SimpleOutput", "RecFormat");
 
 	if (usingRecordingPreset) {
 		if (!ffmpegOutput)
@@ -978,17 +1043,45 @@ void SimpleOutput::UpdateRecording()
 	} else if (!obs_output_active(streamOutput)) {
 		Update();
 	}
+	if (!ffmpegOutput)
+		UpdateRecordingAudioSettings();
 
 	if (!Active())
 		SetupOutputs();
 
 	if (!ffmpegOutput && fileOutput) {
 		obs_output_set_video_encoder(fileOutput, h264Recording);
-		obs_output_set_audio_encoder(fileOutput, aacRecording, 0);
+		const QVector<OBSPTAudioOutputTrack> topology =
+			main->GetAudioRoutingTopology(QString::fromUtf8(format));
+		for (int i = 0; i < MAX_AUDIO_MIXES; ++i)
+			obs_output_set_audio_encoder(fileOutput, nullptr, i);
+		int outputIndex = 0;
+		for (const OBSPTAudioOutputTrack &track : topology) {
+			if (track.number < 1 || track.number > MAX_AUDIO_MIXES)
+				continue;
+			obs_encoder_set_name(aacRecording[track.number - 1],
+					     track.name.toUtf8().constData());
+			obs_output_set_audio_encoder(
+				fileOutput, aacRecording[track.number - 1],
+				outputIndex++);
+		}
 	}
 	if (replayBuffer) {
 		obs_output_set_video_encoder(replayBuffer, h264Recording);
-		obs_output_set_audio_encoder(replayBuffer, aacRecording, 0);
+		const QVector<OBSPTAudioOutputTrack> topology =
+			main->GetAudioRoutingTopology(QString::fromUtf8(format));
+		for (int i = 0; i < MAX_AUDIO_MIXES; ++i)
+			obs_output_set_audio_encoder(replayBuffer, nullptr, i);
+		int outputIndex = 0;
+		for (const OBSPTAudioOutputTrack &track : topology) {
+			if (track.number < 1 || track.number > MAX_AUDIO_MIXES)
+				continue;
+			obs_encoder_set_name(aacRecording[track.number - 1],
+					     track.name.toUtf8().constData());
+			obs_output_set_audio_encoder(
+				replayBuffer, aacRecording[track.number - 1],
+				outputIndex++);
+		}
 	}
 
 	recordingConfigured = true;
@@ -1070,9 +1163,12 @@ bool SimpleOutput::StartRecording()
 		return false;
 	}
 
+	main->BeginAudioRoutingSession();
 	UpdateRecording();
-	if (!ConfigureRecording(false))
+	if (!ConfigureRecording(false)) {
+		main->EndAudioRoutingSession();
 		return false;
+	}
 	if (!obs_output_start(fileOutput)) {
 		QString error_reason;
 		const char *error = obs_output_get_last_error(fileOutput);
@@ -1081,6 +1177,7 @@ bool SimpleOutput::StartRecording()
 		else
 			error_reason = QTStr("Output.StartFailedGeneric");
 		ShowStartRecordingFailed(main, error_reason, hybridMP4);
+		main->EndAudioRoutingSession();
 		return false;
 	}
 
@@ -1089,12 +1186,18 @@ bool SimpleOutput::StartRecording()
 
 bool SimpleOutput::StartReplayBuffer()
 {
-	UpdateRecording();
-	if (!ConfigureRecording(true))
+	if (!replayBuffer)
 		return false;
+	main->BeginAudioRoutingSession();
+	UpdateRecording();
+	if (!ConfigureRecording(true)) {
+		main->EndAudioRoutingSession();
+		return false;
+	}
 	if (!obs_output_start(replayBuffer)) {
 		QMessageBox::critical(main, QTStr("Output.StartReplayFailed"),
 				      QTStr("Output.StartFailedGeneric"));
+		main->EndAudioRoutingSession();
 		return false;
 	}
 
@@ -1166,7 +1269,7 @@ struct AdvancedOutput : BasicOutputHandler {
 	inline void UpdateAudioSettings();
 	virtual void Update() override;
 
-	inline void SetupVodTrack(obs_service_t *service);
+	inline bool SetupVodTrack(obs_service_t *service);
 
 	inline void SetupStreaming();
 	inline void SetupRecording();
@@ -1345,16 +1448,13 @@ AdvancedOutput::AdvancedOutput(OBSBasic *main_) : BasicOutputHandler(main_)
 	}
 
 	std::string id;
-	int streamTrack =
-		config_get_int(main->Config(), "AdvOut", "TrackIndex") - 1;
-	if (!CreateAACEncoder(streamAudioEnc, id, GetAudioBitrate(streamTrack),
-			      "adv_stream_aac", streamTrack))
+	if (!CreateAACEncoder(streamAudioEnc, id, GetAudioBitrate(0),
+			      "adv_stream_aac", 0))
 		throw "Failed to create streaming audio encoder "
 		      "(advanced output)";
 
 	id = "";
-	int vodTrack =
-		config_get_int(main->Config(), "AdvOut", "VodTrackIndex") - 1;
+	int vodTrack = ConfiguredVodTrack(main) - 1;
 	if (!CreateAACEncoder(streamArchiveEnc, id, GetAudioBitrate(vodTrack),
 			      ADV_ARCHIVE_NAME, vodTrack))
 		throw "Failed to create archive audio encoder "
@@ -1427,14 +1527,8 @@ void AdvancedOutput::Update()
 
 static inline bool ServiceSupportsVodTrack(const char *service)
 {
-	static const char *vodTrackServices[] = {"Twitch"};
-
-	for (const char *vodTrackService : vodTrackServices) {
-		if (astrcmpi(vodTrackService, service) == 0)
-			return true;
-	}
-
-	return false;
+	return OBSPTAudioRoutingModel::ServiceSupportsVodTrack(
+		QString::fromUtf8(service ? service : ""));
 }
 
 inline void AdvancedOutput::SetupStreaming()
@@ -1477,25 +1571,13 @@ inline void AdvancedOutput::SetupRecording()
 	bool rescale = config_get_bool(main->Config(), "AdvOut", "RecRescale");
 	const char *rescaleRes =
 		config_get_string(main->Config(), "AdvOut", "RecRescaleRes");
-	int tracks;
-
 	const char *recFormat =
 		config_get_string(main->Config(), "AdvOut", "RecFormat");
-
-	bool flv = strcmp(recFormat, "flv") == 0;
-
-	if (flv)
-		tracks = config_get_int(main->Config(), "AdvOut", "FLVTrack");
-	else
-		tracks = config_get_int(main->Config(), "AdvOut", "RecTracks");
 
 	OBSDataAutoRelease settings = obs_data_create();
 	unsigned int cx = 0;
 	unsigned int cy = 0;
 	int idx = 0;
-
-	if (tracks == 0)
-		tracks = config_get_int(main->Config(), "AdvOut", "TrackIndex");
 
 	if (useStreamEncoder) {
 		obs_output_set_video_encoder(fileOutput, h264Streaming);
@@ -1518,24 +1600,25 @@ inline void AdvancedOutput::SetupRecording()
 						     h264Recording);
 	}
 
-	if (!flv) {
-		for (int i = 0; i < MAX_AUDIO_MIXES; i++) {
-			if ((tracks & (1 << i)) != 0) {
-				obs_output_set_audio_encoder(fileOutput,
-							     aacTrack[i], idx);
-				if (replayBuffer)
-					obs_output_set_audio_encoder(
-						replayBuffer, aacTrack[i], idx);
-				idx++;
-			}
-		}
-	} else if (flv && tracks != 0) {
-		obs_output_set_audio_encoder(fileOutput, aacTrack[tracks - 1],
-					     idx);
+	for (int i = 0; i < MAX_AUDIO_MIXES; ++i) {
+		obs_output_set_audio_encoder(fileOutput, nullptr, i);
+		if (replayBuffer)
+			obs_output_set_audio_encoder(replayBuffer, nullptr, i);
+	}
 
+	const QVector<OBSPTAudioOutputTrack> topology =
+		main->GetAudioRoutingTopology(QString::fromUtf8(recFormat));
+	for (const OBSPTAudioOutputTrack &track : topology) {
+		if (track.number < 1 || track.number > MAX_AUDIO_MIXES)
+			continue;
+		obs_encoder_set_name(aacTrack[track.number - 1],
+				     track.name.toUtf8().constData());
+		obs_output_set_audio_encoder(fileOutput,
+					     aacTrack[track.number - 1], idx);
 		if (replayBuffer)
 			obs_output_set_audio_encoder(replayBuffer,
-						     aacTrack[tracks - 1], idx);
+						     aacTrack[track.number - 1], idx);
+		++idx;
 	}
 
 	obs_data_set_string(settings, "path", path);
@@ -1565,8 +1648,8 @@ inline void AdvancedOutput::SetupFFmpeg()
 		config_get_int(main->Config(), "AdvOut", "FFVEncoderId");
 	const char *vEncCustom =
 		config_get_string(main->Config(), "AdvOut", "FFVCustom");
-	int aBitrate = config_get_int(main->Config(), "AdvOut", "FFABitrate");
-	int aMixes = config_get_int(main->Config(), "AdvOut", "FFAudioMixes");
+	int aBitrate =
+		config_get_int(main->Config(), "Output", "AudioBitrate");
 	const char *aEncoder =
 		config_get_string(main->Config(), "AdvOut", "FFAEncoder");
 	int aEncoderId =
@@ -1574,6 +1657,24 @@ inline void AdvancedOutput::SetupFFmpeg()
 	const char *aEncCustom =
 		config_get_string(main->Config(), "AdvOut", "FFACustom");
 	OBSDataAutoRelease settings = obs_data_create();
+	const OBSPTCustomContainerMode containerMode =
+		OBSPTAudioRoutingModel::CustomContainerMode(
+			QString::fromUtf8(formatName));
+	QVector<OBSPTAudioOutputTrack> topology;
+	if (containerMode != OBSPTCustomContainerMode::Unsupported)
+		topology = main->GetAudioRoutingTopology(
+			QString::fromUtf8(formatName));
+	int audioMixes = 0;
+	for (int i = 0; i < topology.size(); ++i) {
+		const OBSPTAudioOutputTrack &track = topology[i];
+		if (track.number < 1 || track.number > MAX_AUDIO_MIXES)
+			continue;
+		audioMixes |= 1 << (track.number - 1);
+		const QByteArray name = track.name.toUtf8();
+		char key[32];
+		snprintf(key, sizeof(key), "audio_track_name_%d", i);
+		obs_data_set_string(settings, key, name.constData());
+	}
 
 	obs_data_set_string(settings, "url", url);
 	obs_data_set_string(settings, "format_name", formatName);
@@ -1600,7 +1701,7 @@ inline void AdvancedOutput::SetupFFmpeg()
 		}
 	}
 
-	obs_output_set_mixers(fileOutput, aMixes);
+	obs_output_set_mixers(fileOutput, audioMixes);
 	obs_output_set_media(fileOutput, obs_get_video(), obs_get_audio());
 	obs_output_update(fileOutput, settings);
 }
@@ -1613,57 +1714,19 @@ static inline void SetEncoderName(obs_encoder_t *encoder, const char *name,
 
 inline void AdvancedOutput::UpdateAudioSettings()
 {
-	bool applyServiceSettings = config_get_bool(main->Config(), "AdvOut",
-						    "ApplyServiceSettings");
-	bool enforceBitrate = !config_get_bool(main->Config(), "Stream1",
-					       "IgnoreRecommended");
-	int streamTrackIndex =
-		config_get_int(main->Config(), "AdvOut", "TrackIndex");
-	int vodTrackIndex =
-		config_get_int(main->Config(), "AdvOut", "VodTrackIndex");
 	OBSDataAutoRelease settings[MAX_AUDIO_MIXES];
 
 	for (size_t i = 0; i < MAX_AUDIO_MIXES; i++) {
 		settings[i] = obs_data_create();
 		obs_data_set_int(settings[i], "bitrate", GetAudioBitrate(i));
-	}
-
-	for (size_t i = 0; i < MAX_AUDIO_MIXES; i++) {
-		string cfg_name = "Track";
-		cfg_name += to_string((int)i + 1);
-		cfg_name += "Name";
-		const char *name = config_get_string(main->Config(), "AdvOut",
-						     cfg_name.c_str());
-
-		string def_name = "Track";
-		def_name += to_string((int)i + 1);
-		SetEncoderName(aacTrack[i], name, def_name.c_str());
-	}
-
-	for (size_t i = 0; i < MAX_AUDIO_MIXES; i++) {
-		int track = (int)(i + 1);
-
+		const QByteArray name =
+			main->GetAudioRoutingModel().TrackName((int)i + 1).toUtf8();
+		SetEncoderName(aacTrack[i], name.constData(), "Track");
 		obs_encoder_update(aacTrack[i], settings[i]);
-
-		if (track == streamTrackIndex || track == vodTrackIndex) {
-			if (applyServiceSettings) {
-				int bitrate = (int)obs_data_get_int(settings[i],
-								    "bitrate");
-				obs_service_apply_encoder_settings(
-					main->GetService(), nullptr,
-					settings[i]);
-
-				if (!enforceBitrate)
-					obs_data_set_int(settings[i], "bitrate",
-							 bitrate);
-			}
-		}
-
-		if (track == streamTrackIndex)
-			obs_encoder_update(streamAudioEnc, settings[i]);
-		if (track == vodTrackIndex)
-			obs_encoder_update(streamArchiveEnc, settings[i]);
 	}
+	obs_encoder_update(streamAudioEnc, settings[0]);
+	obs_encoder_update(streamArchiveEnc,
+			   settings[ConfiguredVodTrack(main) - 1]);
 }
 
 void AdvancedOutput::SetupOutputs()
@@ -1686,47 +1749,38 @@ void AdvancedOutput::SetupOutputs()
 
 int AdvancedOutput::GetAudioBitrate(size_t i) const
 {
-	static const char *names[] = {
-		"Track1Bitrate", "Track2Bitrate", "Track3Bitrate",
-		"Track4Bitrate", "Track5Bitrate", "Track6Bitrate",
-	};
-	int bitrate = (int)config_get_uint(main->Config(), "AdvOut", names[i]);
+	UNUSED_PARAMETER(i);
+	int bitrate =
+		(int)config_get_uint(main->Config(), "Output", "AudioBitrate");
 	return FindClosestAvailableAACBitrate(bitrate);
 }
 
-inline void AdvancedOutput::SetupVodTrack(obs_service_t *service)
+inline bool AdvancedOutput::SetupVodTrack(obs_service_t *service)
 {
-	int streamTrack =
-		config_get_int(main->Config(), "AdvOut", "TrackIndex");
-	bool vodTrackEnabled =
-		config_get_bool(main->Config(), "AdvOut", "VodTrackEnabled");
-	int vodTrackIndex =
-		config_get_int(main->Config(), "AdvOut", "VodTrackIndex");
-	bool enableForCustomServer = config_get_bool(
-		GetGlobalConfig(), "General", "EnableCustomServerVodTrack");
-
-	const char *id = obs_service_get_id(service);
-	if (strcmp(id, "rtmp_custom") == 0) {
-		vodTrackEnabled = enableForCustomServer ? vodTrackEnabled
-							: false;
-	} else {
-		OBSDataAutoRelease settings = obs_service_get_settings(service);
-		const char *service = obs_data_get_string(settings, "service");
-		if (!ServiceSupportsVodTrack(service))
-			vodTrackEnabled = false;
+	if (!VodTrackEnabledForService(main, service, false)) {
+		clear_archive_encoder(streamOutput, ADV_ARCHIVE_NAME);
+		return true;
 	}
 
-	if (vodTrackEnabled && streamTrack != vodTrackIndex)
-		obs_output_set_audio_encoder(streamOutput, streamArchiveEnc, 1);
-	else
-		clear_archive_encoder(streamOutput, ADV_ARCHIVE_NAME);
+	const int vodTrack = ConfiguredVodTrack(main);
+	const QVector<OBSPTAudioOutputTrack> topology =
+		main->GetAudioStreamingTopology(vodTrack);
+	if (topology.size() < 2 || topology[1].number != vodTrack) {
+		QMessageBox::critical(
+			main, QTStr("Output.StartStreamFailed"),
+			QTStr("Output.VodTrackEmpty")
+				.arg(vodTrack)
+				.arg(main->GetAudioRoutingModel().TrackName(vodTrack)));
+		main->ShowAudioRoutingPanel();
+		return false;
+	}
+
+	obs_output_set_audio_encoder(streamOutput, streamArchiveEnc, 1);
+	return true;
 }
 
 bool AdvancedOutput::SetupStreaming(obs_service_t *service)
 {
-	int streamTrack =
-		config_get_int(main->Config(), "AdvOut", "TrackIndex");
-
 	if (!useStreamEncoder ||
 	    (!ffmpegOutput && (!fileOutput || !obs_output_active(fileOutput)))) {
 		UpdateStreamSettings();
@@ -1809,7 +1863,7 @@ bool AdvancedOutput::SetupStreaming(obs_service_t *service)
 
 				streamAudioEnc = obs_audio_encoder_create(
 					id, "alt_audio_enc", nullptr,
-					streamTrack - 1, nullptr);
+					0, nullptr);
 
 				if (!streamAudioEnc)
 					return false;
@@ -1868,10 +1922,24 @@ bool AdvancedOutput::StartStreaming(obs_service_t *service)
 
 	obs_output_set_reconnect_settings(streamOutput, maxRetries, retryDelay);
 
-	SetupVodTrack(service);
+	if (VodTrackEnabledForService(main, service, false)) {
+		main->BeginAudioRoutingSession();
+		streamingTopologySession = true;
+	}
+	if (!SetupVodTrack(service)) {
+		if (streamingTopologySession) {
+			streamingTopologySession = false;
+			main->EndAudioRoutingSession();
+		}
+		return false;
+	}
 
 	if (obs_output_start(streamOutput)) {
 		return true;
+	}
+	if (streamingTopologySession) {
+		streamingTopologySession = false;
+		main->EndAudioRoutingSession();
 	}
 
 	const char *error = obs_output_get_last_error(streamOutput);
@@ -1896,6 +1964,41 @@ bool AdvancedOutput::StartRecording()
 	bool noSpace = false;
 	bool overwriteIfExists = false;
 	bool hybridMP4 = false;
+	if (ffmpegOutput) {
+		const QString format = QString::fromUtf8(config_get_string(
+			main->Config(), "AdvOut", "FFFormat"));
+		if (OBSPTAudioRoutingModel::CustomContainerMode(format) ==
+		    OBSPTCustomContainerMode::Unsupported) {
+			QMessageBox::critical(
+				main, QTStr("Output.StartRecordingFailed"),
+				QTStr("Output.CustomFFmpegUnsupported").arg(format));
+			return false;
+		}
+		const char *videoEncoder = config_get_string(
+			main->Config(), "AdvOut", "FFVEncoder");
+		const int videoEncoderId = config_get_int(
+			main->Config(), "AdvOut", "FFVEncoderId");
+		const QVector<OBSPTAudioOutputTrack> topology =
+			main->GetAudioRoutingTopology(format);
+		const char *audioEncoder = config_get_string(
+			main->Config(), "AdvOut", "FFAEncoder");
+		const int audioEncoderId = config_get_int(
+			main->Config(), "AdvOut", "FFAEncoderId");
+		QString missingEncoder;
+		if ((!videoEncoder || !*videoEncoder) && videoEncoderId == 0)
+			missingEncoder = QTStr("Output.CustomFFmpeg.VideoEncoder");
+		else if (!topology.isEmpty() &&
+			 ((!audioEncoder || !*audioEncoder) && audioEncoderId == 0))
+			missingEncoder = QTStr("Output.CustomFFmpeg.AudioEncoder");
+		if (!missingEncoder.isEmpty()) {
+			QMessageBox::critical(
+				main, QTStr("Output.StartRecordingFailed"),
+				QTStr("Output.CustomFFmpegEncoderMissing")
+					.arg(format)
+					.arg(missingEncoder));
+			return false;
+		}
+	}
 
 	if (!ffmpegOutput) {
 		hybridMP4 = IsHybridMP4Format(config_get_string(
@@ -1910,6 +2013,7 @@ bool AdvancedOutput::StartRecording()
 			return false;
 		}
 	}
+	main->BeginAudioRoutingSession();
 
 	if (!useStreamEncoder) {
 		if (!ffmpegOutput) {
@@ -1965,6 +2069,7 @@ bool AdvancedOutput::StartRecording()
 		else
 			error_reason = QTStr("Output.StartFailedGeneric");
 		ShowStartRecordingFailed(main, error_reason, hybridMP4);
+		main->EndAudioRoutingSession();
 		return false;
 	}
 
@@ -1973,6 +2078,8 @@ bool AdvancedOutput::StartRecording()
 
 bool AdvancedOutput::StartReplayBuffer()
 {
+	if (!replayBuffer)
+		return false;
 	const char *path;
 	const char *recFormat;
 	const char *filenameFormat;
@@ -1982,6 +2089,7 @@ bool AdvancedOutput::StartReplayBuffer()
 	const char *rbSuffix;
 	int rbTime;
 	int rbSize;
+	main->BeginAudioRoutingSession();
 
 	if (!useStreamEncoder) {
 		if (!ffmpegOutput)
@@ -2048,6 +2156,7 @@ bool AdvancedOutput::StartReplayBuffer()
 		QMessageBox::critical(main,
 				      QTStr("Output.StartRecordingFailed"),
 				      error_reason);
+		main->EndAudioRoutingSession();
 		return false;
 	}
 

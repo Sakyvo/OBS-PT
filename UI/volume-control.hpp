@@ -254,6 +254,7 @@ protected:
 class QLabel;
 class QSlider;
 class MuteCheckBox;
+class QColor;
 
 class VolControl : public QWidget {
 	Q_OBJECT
@@ -261,6 +262,7 @@ class VolControl : public QWidget {
 private:
 	OBSSource source;
 	QLabel *nameLabel;
+	QLabel *trackLabel;
 	QLabel *volLabel;
 	VolumeMeter *volMeter;
 	QSlider *slider;
@@ -302,6 +304,8 @@ public:
 
 	QString GetName() const;
 	void SetName(const QString &newName);
+	void SetTrackLabel(const QString &text, const QColor &color);
+	void SetTrackLabelVisible(bool visible);
 
 	void SetMeterDecayRate(qreal q);
 	void setPeakMeterType(enum obs_peak_meter_type peakMeterType);

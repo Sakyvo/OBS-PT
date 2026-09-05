@@ -41,6 +41,7 @@
 #include "auth-base.hpp"
 #include "log-viewer.hpp"
 #include "undo-stack-obs.hpp"
+#include "obspt-audio-routing-model.hpp"
 
 #include <obs-frontend-internal.hpp>
 
@@ -49,12 +50,14 @@
 #include <util/util.hpp>
 
 #include <QPointer>
+#include <QSet>
 
 class QMessageBox;
 class QListWidgetItem;
 class VolControl;
 class OBSBasicStats;
 class OBSUpdateManager;
+class OBSPTAudioRoutingDock;
 
 #include "ui_OBSBasic.h"
 #include "ui_ColorSelect.h"
@@ -165,11 +168,14 @@ class OBSBasic : public OBSMainWindow {
 			   DESIGNABLE true)
 	Q_PROPERTY(QIcon defaultIcon READ GetDefaultIcon WRITE SetDefaultIcon
 			   DESIGNABLE true)
+	Q_PROPERTY(QIcon audioProcessOutputIcon READ GetAudioProcessOutputIcon
+			   WRITE SetAudioProcessOutputIcon DESIGNABLE true)
 
 	friend class OBSAbout;
 	friend class OBSBasicPreview;
 	friend class OBSBasicStatusBar;
 	friend class OBSBasicSourceSelect;
+	friend class OBSPTAudioRoutingDock;
 	friend class OBSBasicTransform;
 	friend class OBSBasicSettings;
 	friend class Auth;
@@ -228,6 +234,15 @@ private:
 	bool hasCopiedTransform = false;
 
 	bool closing = false;
+	bool loadingAudioRouting = false;
+	bool audioRoutingRepairPending = false;
+	OBSPTAudioRoutingModel audioRouting;
+	QSet<obs_source_t *> registeredAudioSources;
+	std::vector<OBSSource> collectionAudioSources;
+	QSet<QString> audioRoutingDesktopAuthority;
+	bool audioRoutingPrivateMix = false;
+	int audioRoutingSessionRefs = 0;
+	bool refreshingAudioMixer = false;
 	QScopedPointer<QThread> devicePropertiesThread;
 	QScopedPointer<QThread> whatsNewInitThread;
 	QScopedPointer<QThread> introCheckThread;
@@ -240,6 +255,8 @@ private:
 	QPointer<OBSBasicAdvAudio> advAudioWindow;
 	QPointer<OBSBasicFilters> filters;
 	QPointer<QDockWidget> statsDock;
+	QPointer<QDockWidget> audioRoutingDock;
+	QPointer<OBSPTAudioRoutingDock> audioRoutingPanel;
 	QPointer<OBSAbout> about;
 	QPointer<OBSMissingFiles> missDialog;
 	QPointer<OBSLogViewer> logView;
@@ -346,12 +363,29 @@ private:
 	void UpdateVolumeControlsDecayRate();
 	void UpdateVolumeControlsPeakMeterType();
 	void ClearVolumeControls();
+	VolControl *CreateAudioControl(OBSSource source, bool vertical);
+	void RefreshAudioMixer();
+	QVector<QString> OrderedAudioRoutingSourceIds() const;
 
 	void UploadLog(const char *subdir, const char *file, const bool crash);
 
 	void Save(const char *file);
 	void LoadData(obs_data_t *data, const char *file);
 	void Load(const char *file);
+	void LoadAudioRouting(obs_data_t *data);
+	void SaveAudioRouting(obs_data_t *data);
+	void ReconcileAudioRoutingSources();
+	void PruneOrphanedAudioRouting();
+	static void SceneItemRemoved(void *data, calldata_t *params);
+	void ApplyAudioRouting(obs_source_t *source);
+	void ApplyAllAudioRouting();
+	bool IsCollectionAudioSource(obs_source_t *source) const;
+	void ReleaseCollectionAudioSource(obs_source_t *source);
+	void ReleaseAllCollectionAudioSources();
+	OBSSource CommitCollectionAudioSource(obs_source_t *source,
+					 int initialEditorTrack);
+	QSet<QString> CurrentDesktopAudioSources() const;
+	void RemoveAudioRoutingSource(obs_source_t *source);
 
 	void InitHotkeys();
 	void CreateHotkeys();
@@ -562,6 +596,7 @@ private:
 	QIcon groupIcon;
 	QIcon sceneIcon;
 	QIcon defaultIcon;
+	QIcon audioProcessOutputIcon;
 
 	QIcon GetImageIcon() const;
 	QIcon GetColorIcon() const;
@@ -576,6 +611,7 @@ private:
 	QIcon GetMediaIcon() const;
 	QIcon GetBrowserIcon() const;
 	QIcon GetDefaultIcon() const;
+	QIcon GetAudioProcessOutputIcon() const;
 
 	QSlider *tBar;
 	bool tBarActive = false;
@@ -609,6 +645,12 @@ private:
 
 	void UpdatePreviewSafeAreas();
 	bool drawSafeAreas = false;
+
+	/* Issue 041: propagate the global Java Detection leniency
+	 * (Global Config [General] JavaDetectionLenient) into every
+	 * game_capture / wasapi_process_output_capture source's own
+	 * settings so plugins read only their own data. */
+	void PropagateJavaDetection();
 
 public slots:
 	void DeferSaveBegin();
@@ -687,6 +729,9 @@ private slots:
 	void AddScene(OBSSource source);
 	void RemoveScene(OBSSource source);
 	void RenameSources(OBSSource source, QString newName, QString prevName);
+	void RegisterAudioSourceSlot(OBSSource source);
+	void PruneOrphanedAudioRoutingSlot();
+	void RemoveAudioSourceSlot(OBSSource source);
 
 	void ActivateAudioSource(OBSSource source);
 	void DeactivateAudioSource(OBSSource source);
@@ -773,6 +818,7 @@ private slots:
 	void SetGroupIcon(const QIcon &icon);
 	void SetSceneIcon(const QIcon &icon);
 	void SetDefaultIcon(const QIcon &icon);
+	void SetAudioProcessOutputIcon(const QIcon &icon);
 
 	void TBarChanged(int value);
 	void TBarReleased();
@@ -795,8 +841,8 @@ private:
 
 	void ResizePreview(uint32_t cx, uint32_t cy);
 
-	void AddSource(const char *id);
-	QMenu *CreateAddSourcePopupMenu();
+	void AddSource(const char *id, bool collectionAudio = false);
+	QMenu *CreateAddSourcePopupMenu(bool audioOnly = false);
 	void AddSourcePopupMenu(const QPoint &pos);
 	void copyActionsDynamicProperties();
 
@@ -819,6 +865,48 @@ public:
 	undo_stack undo_s;
 	OBSSource GetProgramSource();
 	OBSScene GetCurrentScene();
+
+	const OBSPTAudioRoutingModel &GetAudioRoutingModel() const
+	{
+		return audioRouting;
+	}
+
+	bool SetAudioSourceTrack(const QString &sourceId, int editorTrack);
+	OBSPTAudioRouteChangeResult
+	MoveAudioSourceToTrack(const QString &sourceId,
+			       const OBSPTAudioTrackTarget &target);
+	bool SetAudioTrackName(int track, const QString &name);
+	bool RenameAudioRoutingSource(const QString &sourceId,
+				      const QString &name, QWidget *parent);
+	bool MoveAudioSource(const QString &sourceId, int direction);
+	bool SetAudioSourcePosition(const QString &sourceId, int index);
+	bool SetAudioSourceMuted(const QString &sourceId, bool muted);
+	bool SetAudioMode(OBSPTAudioMode mode);
+	bool SetSingleTrackMuted(bool muted);
+	bool MoveMutedAudioSource(const QString &sourceId, int direction);
+	bool SetMutedAudioSourcePosition(const QString &sourceId, int index);
+	void AudioSourceMuted(obs_source_t *source, bool muted);
+	void AudioSourceMonitoringChanged(obs_source_t *source,
+					 bool monitorOnly);
+	bool AudioRoutingLocked() const { return audioRouting.TopologyLocked(); }
+	OBSSource GetAudioRoutingSource(const QString &sourceId) const;
+	QString GetAudioRoutingSourceIdentity(obs_source_t *source) const;
+	bool AudioSourcePendingNextSession(const QString &sourceId) const;
+	QString AudioRoutingLockDescription();
+	void ShowAudioRoutingPanel();
+	void AddAudioSourcePopupMenu(const QPoint &pos);
+	void AdoptCollectionAudioSource(obs_source_t *source);
+	bool CanRemoveAudioRoutingSource(const QString &sourceId) const;
+	bool RemoveAudioRoutingSource(const QString &sourceId);
+	void OpenAudioSettings();
+	void RegisterAudioSource(obs_source_t *source);
+	QVector<OBSPTAudioOutputTrack>
+	GetAudioRoutingTopology(const QString &format) const;
+	bool RecordMixTrackEnabled() const;
+	QVector<OBSPTAudioOutputTrack>
+	GetAudioStreamingTopology(int vodEditorTrack = 0) const;
+	void BeginAudioRoutingSession();
+	void EndAudioRoutingSession();
 
 	void SysTrayNotify(const QString &text, QSystemTrayIcon::MessageIcon n);
 
@@ -902,7 +990,8 @@ public:
 	void OpenSavedProjectors();
 
 	void CreateInteractionWindow(obs_source_t *source);
-	void CreatePropertiesWindow(obs_source_t *source);
+	void CreatePropertiesWindow(obs_source_t *source,
+				    bool allowSourceRename = false);
 	void CreateFiltersWindow(obs_source_t *source);
 
 	QAction *AddDockWidget(QDockWidget *dock);
@@ -1094,7 +1183,8 @@ private slots:
 
 	void OpenSceneFilters();
 	void OpenFilters(OBSSource source = nullptr);
-	void OpenProperties(OBSSource source = nullptr);
+	void OpenProperties(OBSSource source = nullptr,
+			    bool allowSourceRename = false);
 	void OpenInteraction(OBSSource source = nullptr);
 
 	void EnablePreviewDisplay(bool enable);

@@ -1,4 +1,5 @@
 #include "obspt-bootstrap.h"
+#include "obspt-record-path-policy.hpp"
 #include "obs-app.hpp"
 
 #include <obs.h>
@@ -571,8 +572,20 @@ void apply_record_path_to_config(config_t *cfg, const char *abs_path)
 	if (!cfg || !abs_path || !*abs_path)
 		return;
 
-	config_set_string(cfg, "AdvOut", "RecFilePath", abs_path);
-	config_set_string(cfg, "SimpleOutput", "FilePath", abs_path);
+	/* Recording directories are user-owned. An overwrite install restores
+	 * the old active Profile's values before this runs, so only initialise
+	 * the slots that were never set - each judged on its own. */
+	const OBSPTRecordPathPlan plan = OBSPTPlanRecordPaths(
+		config_get_string(cfg, "SimpleOutput", "FilePath"),
+		config_get_string(cfg, "AdvOut", "RecFilePath"),
+		config_get_string(cfg, "AdvOut", "FFFilePath"));
+
+	if (plan.writeSimpleOutput)
+		config_set_string(cfg, "SimpleOutput", "FilePath", abs_path);
+	if (plan.writeAdvancedRecording)
+		config_set_string(cfg, "AdvOut", "RecFilePath", abs_path);
+	if (plan.writeCustomFFmpeg)
+		config_set_string(cfg, "AdvOut", "FFFilePath", abs_path);
 }
 
 static int recording_quality_value(const char *encoder_id, int base_cy)
@@ -725,9 +738,14 @@ bool run_first_run_bootstrap_if_needed(const char *active_profile_name,
 	int cqp = recording_quality_value(enc.encoder_id, base_cy);
 	int encoder_config_result = apply_encoder_to_profile(
 		active_profile_name, enc.encoder_id, cqp);
-	if (active_config && encoder_config_result == 0)
+	if (active_config && encoder_config_result == 0) {
 		config_set_string(active_config, "AdvOut", "RecEncoder",
 				  enc.encoder_id);
+		/* Issue 043: the streaming encoder follows the same
+		 * first-run hardware probe as recording. */
+		config_set_string(active_config, "AdvOut", "Encoder",
+				  enc.encoder_id);
+	}
 
 	char recordings_path[512];
 	get_portable_path(recordings_path, sizeof(recordings_path), "recordings");

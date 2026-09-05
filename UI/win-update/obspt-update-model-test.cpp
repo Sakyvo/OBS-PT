@@ -81,9 +81,9 @@ void TestVersions()
 	QVersionNumber current;
 	QVersionNumber older;
 	QVersionNumber newer;
-	ParseOBSStableVersion(QStringLiteral("1.0.0"), current);
-	ParseOBSStableVersion(QStringLiteral("0.9.9"), older);
-	ParseOBSStableVersion(QStringLiteral("1.0.1"), newer);
+	ParseOBSStableVersion(QStringLiteral("1.1.0"), current);
+	ParseOBSStableVersion(QStringLiteral("1.0.0"), older);
+	ParseOBSStableVersion(QStringLiteral("1.1.1"), newer);
 	Check(QVersionNumber::compare(current, current) == 0,
 	      "semantic version comparison detects current release");
 	Check(QVersionNumber::compare(older, current) < 0,

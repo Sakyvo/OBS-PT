@@ -41,6 +41,7 @@
 #include "qt-wrappers.hpp"
 #include "obs-app.hpp"
 #include "obspt-bootstrap.h"
+#include "obspt-elevated-launch-model.hpp"
 #include "log-viewer.hpp"
 #include "slider-ignorewheel.hpp"
 #include "window-basic-main.hpp"
@@ -54,6 +55,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <shellapi.h>
 #include <filesystem>
 #else
 #include <signal.h>
@@ -418,6 +420,8 @@ bool OBSApp::InitGlobalConfigDefaults()
 	config_set_default_int(globalConfig, "General", "InfoIncrement", -1);
 	config_set_default_string(globalConfig, "General", "ProcessPriority",
 				  "Normal");
+	config_set_default_bool(globalConfig, "General", "RunAsAdministrator",
+				true);
 	config_set_default_bool(globalConfig, "General", "EnableAutoUpdates",
 				true);
 
@@ -1154,6 +1158,13 @@ bool OBSApp::InitTheme()
 		themeName = DEFAULT_THEME;
 	if (!themeName)
 		themeName = "Dark";
+
+	/* Issue 053: Acri is hidden from the picker; an existing Acri selection
+	 * must fall back to Dark and be persisted so the theme stays removed. */
+	if (themeName && strcmp(themeName, "Acri") == 0) {
+		themeName = "Dark";
+		config_set_string(globalConfig, "General", "CurrentTheme2", "Dark");
+	}
 
 	if (strcmp(themeName, "Default") == 0)
 		themeName = "System";
@@ -2751,6 +2762,120 @@ void ctrlc_handler(int s)
 	main->close();
 }
 
+#ifdef _WIN32
+static bool obspt_process_is_elevated()
+{
+	HANDLE token = nullptr;
+	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+		return false;
+
+	TOKEN_ELEVATION elevation = {};
+	DWORD size = 0;
+	const bool success = GetTokenInformation(
+		token, TokenElevation, &elevation, sizeof(elevation), &size);
+	CloseHandle(token);
+	return success && elevation.TokenIsElevated != 0;
+}
+
+static bool obspt_elevated_launch_enabled()
+{
+	char path[512];
+	if (GetConfigPath(path, sizeof(path), "obs-studio/global.ini") <= 0)
+		return true;
+
+	config_t *config = nullptr;
+	if (config_open(&config, path, CONFIG_OPEN_EXISTING) != CONFIG_SUCCESS)
+		return true;
+
+	const bool enabled =
+		!config_has_user_value(config, "General", "RunAsAdministrator") ||
+		config_get_bool(config, "General", "RunAsAdministrator");
+	config_close(config);
+	return enabled;
+}
+
+static wstring obspt_current_executable()
+{
+	wstring path(260, L'\0');
+	for (;;) {
+		const DWORD length = GetModuleFileNameW(
+			nullptr, path.data(), static_cast<DWORD>(path.size()));
+		if (length == 0)
+			return {};
+		if (length < path.size() - 1) {
+			path.resize(length);
+			return path;
+		}
+		path.resize(path.size() * 2);
+	}
+}
+
+static wstring obspt_current_working_directory()
+{
+	const DWORD required = GetCurrentDirectoryW(0, nullptr);
+	if (required == 0)
+		return {};
+	wstring path(required, L'\0');
+	const DWORD length = GetCurrentDirectoryW(required, path.data());
+	if (length == 0 || length >= required)
+		return {};
+	path.resize(length);
+	return path;
+}
+
+static bool obspt_execute_elevated_relaunch(
+	const OBSPTElevatedLaunchRequest &request, void *)
+{
+	SHELLEXECUTEINFOW execute = {};
+	execute.cbSize = sizeof(execute);
+	execute.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+	execute.lpVerb = L"runas";
+	execute.lpFile = request.executable.c_str();
+	execute.lpParameters =
+		request.arguments.empty() ? nullptr : request.arguments.c_str();
+	execute.lpDirectory = request.workingDirectory.empty()
+				      ? nullptr
+				      : request.workingDirectory.c_str();
+	execute.nShow = SW_SHOWNORMAL;
+
+	const bool started = ShellExecuteExW(&execute) != FALSE;
+	if (execute.hProcess)
+		CloseHandle(execute.hProcess);
+	return started;
+}
+
+static bool obspt_try_elevated_relaunch()
+{
+	if (DecideOBSPTElevatedLaunch(obspt_elevated_launch_enabled(),
+				       obspt_process_is_elevated()) !=
+	    OBSPTElevatedLaunchAction::RequestElevation)
+		return false;
+
+	int argc = 0;
+	LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+	if (!argv || argc < 1) {
+		if (argv)
+			LocalFree(argv);
+		return false;
+	}
+
+	vector<wstring> arguments;
+	arguments.reserve(argc > 1 ? static_cast<size_t>(argc - 1) : 0);
+	for (int i = 1; i < argc; ++i)
+		arguments.emplace_back(argv[i]);
+	LocalFree(argv);
+
+	const auto request = BuildOBSPTElevatedLaunchRequest(
+		obspt_current_executable(), arguments,
+		obspt_current_working_directory());
+	if (request.executable.empty())
+		return false;
+
+	return ExecuteOBSPTElevatedLaunch(
+		request, obspt_execute_elevated_relaunch);
+}
+#endif
+
 int main(int argc, char *argv[])
 {
 #ifndef _WIN32
@@ -2892,6 +3017,20 @@ int main(int argc, char *argv[])
 			exit(0);
 		}
 	}
+
+#ifdef _WIN32
+	if (obspt_try_elevated_relaunch()) {
+		if (hRtwq) {
+			typedef HRESULT(STDAPICALLTYPE * PFN_RtwqShutdown)();
+			PFN_RtwqShutdown func =
+				(PFN_RtwqShutdown)GetProcAddress(hRtwq,
+							       "RtwqShutdown");
+			func();
+			FreeLibrary(hRtwq);
+		}
+		return 0;
+	}
+#endif
 
 	char obspt_failed_preset[512] = {0};
 	if (validate_obspt_preset_files(obspt_failed_preset,

@@ -160,10 +160,11 @@ private:
 	uint32_t outputCY = 0;
 
 	QPointer<QCheckBox> simpleVodTrack;
+	QPointer<QComboBox> simpleVodTrackSelector;
+	QPointer<QWidget> simpleVodTrackContainer;
 
 	QPointer<QCheckBox> vodTrackCheckbox;
-	QPointer<QWidget> vodTrackContainer;
-	QPointer<QRadioButton> vodTrack[MAX_AUDIO_MIXES];
+	QPointer<QComboBox> vodTrackSelector;
 
 	QIcon hotkeyConflictIcon;
 
@@ -419,6 +420,7 @@ protected:
 public:
 	OBSBasicSettings(QWidget *parent);
 	~OBSBasicSettings();
+	void SetCurrentPage(int row);
 
 	inline const QIcon &GetHotkeyConflictIcon() const
 	{

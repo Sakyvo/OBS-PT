@@ -311,10 +311,13 @@ static bool ffmpeg_mux_start(void *data)
 	struct ffmpeg_muxer *stream = data;
 	obs_data_t *settings;
 	const char *path;
+	uint32_t capture_flags =
+		obs_output_get_audio_encoder(stream->output, 0) ? 0
+								: OBS_OUTPUT_VIDEO;
 
-	if (!obs_output_can_begin_data_capture(stream->output, 0))
+	if (!obs_output_can_begin_data_capture(stream->output, capture_flags))
 		return false;
-	if (!obs_output_initialize_encoders(stream->output, 0))
+	if (!obs_output_initialize_encoders(stream->output, capture_flags))
 		return false;
 
 	settings = obs_output_get_settings(stream->output);
@@ -358,7 +361,7 @@ static bool ffmpeg_mux_start(void *data)
 	os_atomic_set_bool(&stream->active, true);
 	os_atomic_set_bool(&stream->capturing, true);
 	stream->total_bytes = 0;
-	obs_output_begin_data_capture(stream->output, 0);
+	obs_output_begin_data_capture(stream->output, capture_flags);
 
 	info("Writing file '%s'...", stream->path.array);
 	return true;
@@ -708,10 +711,13 @@ static void replay_buffer_destroy(void *data)
 static bool replay_buffer_start(void *data)
 {
 	struct ffmpeg_muxer *stream = data;
+	uint32_t capture_flags =
+		obs_output_get_audio_encoder(stream->output, 0) ? 0
+								: OBS_OUTPUT_VIDEO;
 
-	if (!obs_output_can_begin_data_capture(stream->output, 0))
+	if (!obs_output_can_begin_data_capture(stream->output, capture_flags))
 		return false;
-	if (!obs_output_initialize_encoders(stream->output, 0))
+	if (!obs_output_initialize_encoders(stream->output, capture_flags))
 		return false;
 
 	obs_data_t *s = obs_output_get_settings(stream->output);
@@ -722,7 +728,7 @@ static bool replay_buffer_start(void *data)
 	os_atomic_set_bool(&stream->active, true);
 	os_atomic_set_bool(&stream->capturing, true);
 	stream->total_bytes = 0;
-	obs_output_begin_data_capture(stream->output, 0);
+	obs_output_begin_data_capture(stream->output, capture_flags);
 
 	return true;
 }

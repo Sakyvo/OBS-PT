@@ -1529,8 +1529,17 @@
                     </item>
                     <item row="2" column="0">
                      <widget class="QLabel" name="label_20">
+                      <property name="minimumSize">
+                       <size>
+                        <width>170</width>
+                        <height>0</height>
+                       </size>
+                      </property>
                       <property name="text">
                        <string>Basic.Settings.Output.AudioBitrate</string>
+                      </property>
+                      <property name="alignment">
+                       <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
                       </property>
                       <property name="buddy">
                        <cstring>simpleOutputABitrate</cstring>
@@ -3908,6 +3917,58 @@
               <widget class="QFrame" name="widget_50">
                <layout class="QVBoxLayout" name="verticalLayout_51">
                 <item>
+                 <widget class="QGroupBox" name="audioMultitrackGroupBox">
+                  <property name="title">
+                   <string>Basic.Settings.Audio.MultitrackBehavior</string>
+                  </property>
+                  <layout class="QFormLayout" name="formLayout_mixTrack">
+                   <property name="labelAlignment">
+                    <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   </property>
+                   <item row="0" column="0">
+                    <widget class="QLabel" name="mixTrackBehaviorLabel">
+                     <property name="minimumSize">
+                      <size>
+                       <width>170</width>
+                       <height>0</height>
+                      </size>
+                     </property>
+                     <property name="alignment">
+                      <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                     </property>
+                     <property name="text">
+                      <string>Basic.Settings.Audio.MixTrackBehavior</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="0" column="1">
+                    <widget class="QComboBox" name="mixTrackBehaviorCombo">
+                     <item>
+                      <property name="text">
+                       <string>Basic.Settings.Audio.MixTrackBehavior.Generate</string>
+                      </property>
+                     </item>
+                     <item>
+                      <property name="text">
+                       <string>Basic.Settings.Audio.MixTrackBehavior.Omit</string>
+                      </property>
+                     </item>
+                    </widget>
+                   </item>
+                   <item row="1" column="1">
+                    <widget class="QLabel" name="mixTrackOutputActiveHint">
+                     <property name="text">
+                      <string>Basic.Settings.Audio.MixTrackBehavior.OutputActive</string>
+                     </property>
+                     <property name="visible">
+                      <bool>false</bool>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
                  <widget class="QGroupBox" name="audioGeneralGroupBox">
                   <property name="title">
                    <string>Basic.Settings.General</string>
@@ -4890,6 +4951,16 @@
                       </property>
                      </widget>
                     </item>
+                    <item row="4" column="1">
+                     <widget class="QCheckBox" name="runAsAdministrator">
+                      <property name="text">
+                       <string>Basic.Settings.Advanced.General.RunAsAdministrator</string>
+                      </property>
+                      <property name="checked">
+                       <bool>true</bool>
+                      </property>
+                     </widget>
+                    </item>
                    </layout>
                  </widget>
                 </item>
@@ -5578,6 +5649,55 @@
                   </layout>
                  </widget>
                 </item>
+                <item>
+                 <widget class="QGroupBox" name="javaDetectionGroupBox">
+                  <property name="title">
+                   <string>Basic.Settings.Advanced.JavaDetection</string>
+                  </property>
+                  <layout class="QFormLayout" name="formLayout_javaDetect">
+                   <property name="labelAlignment">
+                    <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   </property>
+                   <property name="topMargin">
+                    <number>2</number>
+                   </property>
+                   <item row="0" column="0">
+                    <widget class="QLabel" name="javaDetectionLabel">
+                     <property name="text">
+                      <string>Basic.Settings.Advanced.JavaDetection.Mode</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="0" column="1">
+                    <widget class="QComboBox" name="javaDetectionMode">
+                     <item>
+                      <property name="text">
+                       <string>Basic.Settings.Advanced.JavaDetection.Strict</string>
+                      </property>
+                     </item>
+                     <item>
+                      <property name="text">
+                       <string>Basic.Settings.Advanced.JavaDetection.Lenient</string>
+                      </property>
+                     </item>
+                    </widget>
+                   </item>
+                   <item row="1" column="0">
+                    <spacer name="horizontalSpacer_java">
+                     <property name="orientation">
+                      <enum>Qt::Horizontal</enum>
+                     </property>
+                     <property name="sizeHint" stdset="0">
+                      <size>
+                       <width>170</width>
+                       <height>0</height>
+                      </size>
+                     </property>
+                    </spacer>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
                </layout>
               </widget>
              </item>
@@ -5817,6 +5937,7 @@
   <tabstop>fpsDenominator</tabstop>
   <tabstop>scrollArea</tabstop>
   <tabstop>processPriority</tabstop>
+  <tabstop>runAsAdministrator</tabstop>
   <tabstop>confirmOnExit</tabstop>
   <tabstop>renderer</tabstop>
   <tabstop>adapter</tabstop>

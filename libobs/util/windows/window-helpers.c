@@ -1,11 +1,10 @@
-#include <obs.h>
+#include "window-helpers.h"
+
 #include <util/dstr.h>
+#include <util/windows/obfuscate.h>
 
 #include <dwmapi.h>
 #include <psapi.h>
-#include <windows.h>
-#include "window-helpers.h"
-#include "obfuscate.h"
 
 static inline void encode_dstr(struct dstr *str)
 {
@@ -22,8 +21,8 @@ static inline char *decode_str(const char *src)
 	return str.array;
 }
 
-extern void build_window_strings(const char *str, char **class, char **title,
-				 char **exe)
+void ms_build_window_strings(const char *str, char **class, char **title,
+			     char **exe)
 {
 	char **strlist;
 
@@ -46,6 +45,57 @@ extern void build_window_strings(const char *str, char **class, char **title,
 	strlist_free(strlist);
 }
 
+static void insert_preserved_val(obs_property_t *p, const char *val, size_t idx)
+{
+	char *window_class = NULL;
+	char *title = NULL;
+	char *executable = NULL;
+	struct dstr desc = {0};
+
+	ms_build_window_strings(val, &window_class, &title, &executable);
+
+	dstr_printf(&desc, "[%s]: %s", executable, title);
+	obs_property_list_insert_string(p, idx, desc.array, val);
+	obs_property_list_item_disable(p, idx, true);
+
+	dstr_free(&desc);
+	bfree(window_class);
+	bfree(title);
+	bfree(executable);
+}
+
+bool ms_check_window_property_setting(obs_properties_t *ppts,
+				      obs_property_t *p,
+				      obs_data_t *settings, const char *val,
+				      size_t idx)
+{
+	const char *cur_val = obs_data_get_string(settings, val);
+	bool match = false;
+	size_t i = 0;
+
+	if (!cur_val)
+		return false;
+
+	for (;;) {
+		const char *item_val = obs_property_list_item_string(p, i++);
+		if (!item_val)
+			break;
+
+		if (strcmp(item_val, cur_val) == 0) {
+			match = true;
+			break;
+		}
+	}
+
+	if (*cur_val && !match) {
+		insert_preserved_val(p, cur_val, idx);
+		return true;
+	}
+
+	UNUSED_PARAMETER(ppts);
+	return false;
+}
+
 static HMODULE kernel32(void)
 {
 	static HMODULE kernel32_handle = NULL;
@@ -60,13 +110,13 @@ static inline HANDLE open_process(DWORD desired_access, bool inherit_handle,
 	typedef HANDLE(WINAPI * PFN_OpenProcess)(DWORD, BOOL, DWORD);
 	static PFN_OpenProcess open_process_proc = NULL;
 	if (!open_process_proc)
-		open_process_proc = (PFN_OpenProcess)get_obfuscated_func(
+		open_process_proc = (PFN_OpenProcess)ms_get_obfuscated_func(
 			kernel32(), "B}caZyah`~q", 0x2D5BEBAF6DDULL);
 
 	return open_process_proc(desired_access, inherit_handle, process_id);
 }
 
-bool get_window_exe(struct dstr *name, HWND window)
+bool ms_get_window_exe(struct dstr *name, HWND window)
 {
 	wchar_t wname[MAX_PATH];
 	struct dstr temp = {0};
@@ -103,7 +153,7 @@ fail:
 	return true;
 }
 
-void get_window_title(struct dstr *name, HWND hwnd)
+void ms_get_window_title(struct dstr *name, HWND hwnd)
 {
 	int len;
 
@@ -130,7 +180,7 @@ void get_window_title(struct dstr *name, HWND hwnd)
 	}
 }
 
-void get_window_class(struct dstr *class, HWND hwnd)
+void ms_get_window_class(struct dstr *class, HWND hwnd)
 {
 	wchar_t temp[256];
 
@@ -192,21 +242,21 @@ static void add_window(obs_property_t *p, HWND hwnd, add_window_cb callback)
 	struct dstr encoded = {0};
 	struct dstr desc = {0};
 
-	if (!get_window_exe(&exe, hwnd))
+	if (!ms_get_window_exe(&exe, hwnd))
 		return;
 	if (is_microsoft_internal_window_exe(exe.array)) {
 		dstr_free(&exe);
 		return;
 	}
 
-	get_window_title(&title, hwnd);
+	ms_get_window_title(&title, hwnd);
 	if (dstr_cmp(&exe, "explorer.exe") == 0 && dstr_is_empty(&title)) {
 		dstr_free(&exe);
 		dstr_free(&title);
 		return;
 	}
 
-	get_window_class(&class, hwnd);
+	ms_get_window_class(&class, hwnd);
 
 	if (callback && !callback(title.array, class.array, exe.array)) {
 		dstr_free(&title);
@@ -268,7 +318,7 @@ static bool check_window_valid(HWND window, enum window_search_mode mode)
 	return true;
 }
 
-bool is_uwp_window(HWND hwnd)
+bool ms_is_uwp_window(HWND hwnd)
 {
 	wchar_t name[256];
 
@@ -279,7 +329,7 @@ bool is_uwp_window(HWND hwnd)
 	return wcscmp(name, L"ApplicationFrameWindow") == 0;
 }
 
-HWND get_uwp_actual_window(HWND parent)
+HWND ms_get_uwp_actual_window(HWND parent)
 {
 	DWORD parent_id = 0;
 	HWND child;
@@ -319,8 +369,8 @@ static HWND next_window(HWND window, enum window_search_mode mode, HWND *parent,
 			break;
 	}
 
-	if (is_uwp_window(window)) {
-		HWND child = get_uwp_actual_window(window);
+	if (ms_is_uwp_window(window)) {
+		HWND child = ms_get_uwp_actual_window(window);
 		if (child) {
 			*parent = window;
 			return child;
@@ -357,8 +407,8 @@ static HWND first_window(enum window_search_mode mode, HWND *parent,
 		}
 	}
 
-	if (is_uwp_window(window)) {
-		HWND child = get_uwp_actual_window(window);
+	if (ms_is_uwp_window(window)) {
+		HWND child = ms_get_uwp_actual_window(window);
 		if (child) {
 			*parent = window;
 			return child;
@@ -368,8 +418,8 @@ static HWND first_window(enum window_search_mode mode, HWND *parent,
 	return window;
 }
 
-void fill_window_list(obs_property_t *p, enum window_search_mode mode,
-		      add_window_cb callback)
+void ms_fill_window_list(obs_property_t *p, enum window_search_mode mode,
+			 add_window_cb callback)
 {
 	HWND parent;
 	bool use_findwindowex = false;
@@ -382,26 +432,47 @@ void fill_window_list(obs_property_t *p, enum window_search_mode mode,
 	}
 }
 
+/* Issue 041 Java Detection: in lenient mode the javaw/java alias group
+ * matches bidirectionally because some Minecraft launches use java.exe.
+ * Mirrored in plugins/win-wasapi/executable-audio-session-model.cpp;
+ * keep the pair in sync. */
+static bool exe_matches_lenient(struct dstr *candidate, const char *target,
+				bool java_lenient)
+{
+	if (dstr_cmpi(candidate, target) == 0)
+		return true;
+	if (!java_lenient)
+		return false;
+	const bool candidate_is_javaw = dstr_cmpi(candidate, "javaw.exe") == 0;
+	const bool candidate_is_java = dstr_cmpi(candidate, "java.exe") == 0;
+	const bool target_is_javaw = _stricmp(target, "javaw.exe") == 0;
+	const bool target_is_java = _stricmp(target, "java.exe") == 0;
+	return (candidate_is_javaw && target_is_java) ||
+	       (candidate_is_java && target_is_javaw);
+}
+
 static int window_rating(HWND window, enum window_priority priority,
 			 const char *class, const char *title, const char *exe,
-			 bool generic_class)
+			 bool generic_class, bool java_lenient)
 {
 	struct dstr cur_class = {0};
 	struct dstr cur_title = {0};
 	struct dstr cur_exe = {0};
 	int val = 0x7FFFFFFF;
 
-	if (!get_window_exe(&cur_exe, window))
+	if (!ms_get_window_exe(&cur_exe, window))
 		return 0x7FFFFFFF;
-	get_window_title(&cur_title, window);
-	get_window_class(&cur_class, window);
+	ms_get_window_title(&cur_title, window);
+	ms_get_window_class(&cur_class, window);
 
 	bool class_matches = dstr_cmpi(&cur_class, class) == 0;
-	bool exe_matches = dstr_cmpi(&cur_exe, exe) == 0;
+	bool exe_matches = exe_matches_lenient(&cur_exe, exe, java_lenient);
 	int title_val = abs(dstr_cmpi(&cur_title, title));
 
-	/* always match by name if class is generic */
-	if (generic_class) {
+	if (priority == WINDOW_PRIORITY_PROCESS_NAME) {
+		val = exe_matches ? 0 : 0x7FFFFFFF;
+	} else if (generic_class) {
+		/* always match by name if class is generic */
 		if (priority == WINDOW_PRIORITY_EXE && !exe_matches)
 			val = 0x7FFFFFFF;
 		else
@@ -457,8 +528,9 @@ static bool is_generic_class(const char *current_class)
 	return false;
 }
 
-HWND find_window(enum window_search_mode mode, enum window_priority priority,
-		 const char *class, const char *title, const char *exe)
+HWND ms_find_window(enum window_search_mode mode,
+		    enum window_priority priority, const char *class,
+		    const char *title, const char *exe, bool java_lenient)
 {
 	HWND parent;
 	bool use_findwindowex = false;
@@ -474,7 +546,7 @@ HWND find_window(enum window_search_mode mode, enum window_priority priority,
 
 	while (window) {
 		int rating = window_rating(window, priority, class, title, exe,
-					   generic_class);
+					   generic_class, java_lenient);
 		if (rating < best_rating) {
 			best_rating = rating;
 			best_window = window;
@@ -495,6 +567,7 @@ struct top_level_enum_data {
 	const char *title;
 	const char *exe;
 	bool generic_class;
+	bool java_lenient;
 	HWND best_window;
 	int best_rating;
 };
@@ -511,7 +584,8 @@ BOOL CALLBACK enum_windows_proc(HWND window, LPARAM lParam)
 
 	const int rating = window_rating(window, data->priority, data->class,
 					 data->title, data->exe,
-					 data->generic_class);
+					 data->generic_class,
+					 data->java_lenient);
 	if (rating < data->best_rating) {
 		data->best_rating = rating;
 		data->best_window = window;
@@ -520,9 +594,10 @@ BOOL CALLBACK enum_windows_proc(HWND window, LPARAM lParam)
 	return rating > 0;
 }
 
-HWND find_window_top_level(enum window_search_mode mode,
-			   enum window_priority priority, const char *class,
-			   const char *title, const char *exe)
+HWND ms_find_window_top_level(enum window_search_mode mode,
+			      enum window_priority priority,
+			      const char *class, const char *title,
+			      const char *exe, bool java_lenient)
 {
 	if (!class)
 		return NULL;
@@ -534,6 +609,7 @@ HWND find_window_top_level(enum window_search_mode mode,
 	data.title = title;
 	data.exe = exe;
 	data.generic_class = is_generic_class(class);
+	data.java_lenient = java_lenient;
 	data.best_window = NULL;
 	data.best_rating = 0x7FFFFFFF;
 	EnumWindows(enum_windows_proc, (LPARAM)&data);

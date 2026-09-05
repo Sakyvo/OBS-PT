@@ -334,6 +334,11 @@ static bool create_audio_stream(struct ffmpeg_data *data, int idx)
 			data->config.audio_encoder))
 		return false;
 
+	const char *track_name = data->config.audio_track_names[idx];
+	if (track_name && *track_name)
+		av_dict_set(&stream->metadata, "title", track_name, 0);
+	stream->disposition = idx == 0 ? AV_DISPOSITION_DEFAULT : 0;
+
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57, 48, 101)
 	context = avcodec_alloc_context3(data->acodec);
 #else
@@ -1097,6 +1102,12 @@ static bool try_connect(struct ffmpeg_output *output)
 		(int)obs_data_get_int(settings, "audio_encoder_id");
 	config.video_settings = obs_data_get_string(settings, "video_settings");
 	config.audio_settings = obs_data_get_string(settings, "audio_settings");
+	for (int i = 0; i < MAX_AUDIO_MIXES; i++) {
+		char key[32];
+		snprintf(key, sizeof(key), "audio_track_name_%d", i);
+		config.audio_track_names[i] =
+			get_string_or_null(settings, key);
+	}
 	config.scale_width = (int)obs_data_get_int(settings, "scale_width");
 	config.scale_height = (int)obs_data_get_int(settings, "scale_height");
 	config.width = (int)obs_output_get_width(output->output);

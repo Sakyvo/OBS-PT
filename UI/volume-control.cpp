@@ -62,6 +62,7 @@ void VolControl::VolumeMuted(bool muted)
 		mute->setChecked(muted);
 
 	volMeter->muted = muted;
+	OBSBasic::Get()->AudioSourceMuted(source, muted);
 }
 
 void VolControl::SetMuted(bool checked)
@@ -140,6 +141,20 @@ void VolControl::SetName(const QString &newName)
 	nameLabel->setText(newName);
 }
 
+void VolControl::SetTrackLabel(const QString &text, const QColor &color)
+{
+	trackLabel->setText(text);
+	QPalette palette = trackLabel->palette();
+	palette.setColor(QPalette::WindowText, color);
+	trackLabel->setPalette(palette);
+	trackLabel->setAccessibleName(text);
+}
+
+void VolControl::SetTrackLabelVisible(bool visible)
+{
+	trackLabel->setVisible(visible);
+}
+
 void VolControl::EmitConfigClicked()
 {
 	emit ConfigClicked();
@@ -165,6 +180,7 @@ VolControl::VolControl(OBSSource source_, bool showConfig, bool vertical)
 	  contextMenu(nullptr)
 {
 	nameLabel = new QLabel();
+	trackLabel = new QLabel();
 	volLabel = new QLabel();
 	mute = new MuteCheckBox();
 
@@ -207,7 +223,8 @@ VolControl::VolControl(OBSSource source_, bool showConfig, bool vertical)
 
 		nameLayout->setContentsMargins(0, 0, 0, 0);
 		nameLayout->setSpacing(0);
-		nameLayout->addWidget(nameLabel);
+		nameLayout->addWidget(trackLabel);
+		nameLayout->addWidget(nameLabel, 1);
 
 		controlLayout->setContentsMargins(0, 0, 0, 0);
 		controlLayout->setSpacing(0);
@@ -245,6 +262,7 @@ VolControl::VolControl(OBSSource source_, bool showConfig, bool vertical)
 		slider = new VolumeSlider(obs_fader, Qt::Horizontal);
 
 		textLayout->setContentsMargins(0, 0, 0, 0);
+		textLayout->addWidget(trackLabel);
 		textLayout->addWidget(nameLabel);
 		textLayout->addWidget(volLabel);
 		textLayout->setAlignment(nameLabel, Qt::AlignLeft);
@@ -272,9 +290,13 @@ VolControl::VolControl(OBSSource source_, bool showConfig, bool vertical)
 
 	QFont font = nameLabel->font();
 	font.setPointSize(font.pointSize() - 1);
+	QFont trackFont = font;
+	trackFont.setBold(true);
 
 	nameLabel->setText(sourceName);
 	nameLabel->setFont(font);
+	trackLabel->setFont(trackFont);
+	trackLabel->setText(QStringLiteral("-"));
 	volLabel->setFont(font);
 
 	slider->setMinimum(0);

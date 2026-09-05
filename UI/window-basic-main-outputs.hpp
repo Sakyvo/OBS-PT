@@ -13,6 +13,7 @@ struct BasicOutputHandler {
 	bool recordingActive = false;
 	bool delayActive = false;
 	bool replayBufferActive = false;
+	bool streamingTopologySession = false;
 	bool virtualCamActive = false;
 	OBSBasic *main;
 

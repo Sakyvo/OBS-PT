@@ -1,4 +1,4 @@
-/******************************************************************************
+﻿/******************************************************************************
     Copyright (C) 2013 by Hugh Bailey <obs.jim@gmail.com>
 
     This program is free software: you can redistribute it and/or modify
@@ -33,17 +33,13 @@ const char *get_module_extension(void)
 	return ".dll";
 }
 
-#ifdef _WIN64
-#define BIT_STRING "64bit"
-#else
-#define BIT_STRING "32bit"
-#endif
-
+/* OBS-PT is permanently x64 with a flat layout (issue 049): plugins live
+ * directly under obs-plugins/, one level up from bin/. */
 static const char *module_bin[] = {
-	"../../obs-plugins/" BIT_STRING,
+	"../obs-plugins",
 };
 
-static const char *module_data[] = {"../../data/obs-plugins/%module%"};
+static const char *module_data[] = {"../data/obs-plugins/%module%"};
 
 static const int module_patterns_size =
 	sizeof(module_bin) / sizeof(module_bin[0]);
@@ -60,7 +56,7 @@ char *find_libobs_data_file(const char *file)
 	struct dstr path;
 	dstr_init(&path);
 
-	if (check_path(file, "../../data/libobs/", &path))
+	if (check_path(file, "../data/libobs/", &path))
 		return path.array;
 
 	dstr_free(&path);

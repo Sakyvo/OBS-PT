@@ -222,7 +222,12 @@ static bool obs_source_init(struct obs_source *source)
 				 (obs_destroy_cb)obs_source_destroy);
 
 	source->deinterlace_top_first = true;
-	source->audio_mixers = 0xFF;
+	const bool private_audio = source->context.private &&
+				   source->info.type == OBS_SOURCE_TYPE_INPUT &&
+				   is_audio_source(source) &&
+				   !(source->info.output_flags &
+				     (OBS_SOURCE_SUBMIX | OBS_SOURCE_CAP_DISABLED));
+	source->audio_mixers = private_audio ? 1 : 0xFF;
 
 	source->private_settings = obs_data_create();
 	return true;
@@ -5251,6 +5256,23 @@ bool obs_source_audio_active(const obs_source_t *source)
 {
 	return obs_source_valid(source, "obs_source_audio_active")
 		       ? os_atomic_load_bool(&source->audio_active)
+		       : false;
+}
+
+void obs_source_set_audio_mix_root(obs_source_t *source, bool enabled)
+{
+	if (!obs_source_valid(source, "obs_source_set_audio_mix_root"))
+		return;
+	if ((source->info.output_flags & OBS_SOURCE_AUDIO) == 0)
+		return;
+
+	os_atomic_set_bool(&source->audio_mix_root, enabled);
+}
+
+bool obs_source_audio_mix_root(const obs_source_t *source)
+{
+	return obs_source_valid(source, "obs_source_audio_mix_root")
+		       ? os_atomic_load_bool(&source->audio_mix_root)
 		       : false;
 }
 

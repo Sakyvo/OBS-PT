@@ -54,10 +54,10 @@
 #include "obsconfig.h"
 #else
 #define OBS_VERSION "unknown"
-#define OBS_DATA_PATH "../../data"
+#define OBS_DATA_PATH "../data"
 #define OBS_INSTALL_PREFIX ""
 #define OBS_PLUGIN_DESTINATION "obs-plugins"
-#define OBS_RELATIVE_PREFIX "../../"
+#define OBS_RELATIVE_PREFIX "../"
 #define OBS_RELEASE_CANDIDATE_MAJOR 0
 #define OBS_RELEASE_CANDIDATE_MINOR 0
 #define OBS_RELEASE_CANDIDATE_PATCH 0

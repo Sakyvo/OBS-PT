@@ -15,8 +15,13 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ******************************************************************************/
 
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QLabel>
 #include <QMessageBox>
+#include <QPushButton>
 #include "window-basic-main.hpp"
+#include "obspt-audio-source-creation-model.hpp"
 #include "window-basic-source-select.hpp"
 #include "qt-wrappers.hpp"
 #include "obs-app.hpp"
@@ -151,11 +156,15 @@ char *get_new_source_name(const char *name, const char *format)
 
 static void AddExisting(OBSSource source, bool visible, bool duplicate,
 			obs_transform_info *transform, obs_sceneitem_crop *crop,
-			obs_blending_type *blend)
+			obs_blending_type *blend,
+			OBSBasicSourceSelectMode mode =
+				OBSBasicSourceSelectMode::SceneItem)
 {
 	OBSBasic *main = reinterpret_cast<OBSBasic *>(App()->GetMainWindow());
-	OBSScene scene = main->GetCurrentScene();
-	if (!scene)
+	OBSScene scene = mode == OBSBasicSourceSelectMode::SceneItem
+				 ? main->GetCurrentScene()
+				 : OBSScene();
+	if (mode == OBSBasicSourceSelectMode::SceneItem && !scene)
 		return;
 
 	if (duplicate) {
@@ -168,6 +177,11 @@ static void AddExisting(OBSSource source, bool visible, bool duplicate,
 
 		if (!source)
 			return;
+	}
+
+	if (mode == OBSBasicSourceSelectMode::CollectionAudio) {
+		main->AdoptCollectionAudioSource(source);
+		return;
 	}
 
 	AddSourceData data;
@@ -184,22 +198,29 @@ static void AddExisting(OBSSource source, bool visible, bool duplicate,
 
 static void AddExisting(const char *name, bool visible, bool duplicate,
 			obs_transform_info *transform, obs_sceneitem_crop *crop,
-			obs_blending_type *blend)
+			obs_blending_type *blend,
+			OBSBasicSourceSelectMode mode =
+				OBSBasicSourceSelectMode::SceneItem)
 {
 	OBSSourceAutoRelease source = obs_get_source_by_name(name);
 	if (source) {
 		AddExisting(source.Get(), visible, duplicate, transform, crop,
-			    blend);
+			    blend, mode);
 	}
 }
 
 bool AddNew(QWidget *parent, const char *id, const char *name,
-	    const bool visible, OBSSource &newSource)
+	    const bool visible, OBSSource &newSource,
+	    int initialEditorTrack = 0,
+	    OBSBasicSourceSelectMode mode =
+		    OBSBasicSourceSelectMode::SceneItem)
 {
 	OBSBasic *main = reinterpret_cast<OBSBasic *>(App()->GetMainWindow());
-	OBSScene scene = main->GetCurrentScene();
+	OBSScene scene = mode == OBSBasicSourceSelectMode::SceneItem
+				 ? main->GetCurrentScene()
+				 : OBSScene();
 	bool success = false;
-	if (!scene)
+	if (mode == OBSBasicSourceSelectMode::SceneItem && !scene)
 		return false;
 
 	OBSSourceAutoRelease source = obs_get_source_by_name(name);
@@ -209,16 +230,30 @@ bool AddNew(QWidget *parent, const char *id, const char *name,
 
 	} else {
 		const char *v_id = obs_get_latest_input_type_id(id);
-		source = obs_source_create(v_id, name, NULL, nullptr);
+		obs_data_t *settings = nullptr;
+		if (initialEditorTrack != 0) {
+			settings = obs_data_create();
+			obs_data_set_int(
+				settings,
+				OBSPTAudioRoutingModel::InitialTrackSetting,
+				initialEditorTrack);
+		}
+		source = mode == OBSBasicSourceSelectMode::CollectionAudio
+				 ? obs_source_create_private(v_id, name, settings)
+				 : obs_source_create(v_id, name, settings, nullptr);
+		if (settings)
+			obs_data_release(settings);
 
 		if (source) {
-			AddSourceData data;
-			data.source = source;
-			data.visible = visible;
+			if (mode == OBSBasicSourceSelectMode::SceneItem) {
+				AddSourceData data;
+				data.source = source;
+				data.visible = visible;
 
-			obs_enter_graphics();
-			obs_scene_atomic_update(scene, AddSource, &data);
-			obs_leave_graphics();
+				obs_enter_graphics();
+				obs_scene_atomic_update(scene, AddSource, &data);
+				obs_leave_graphics();
+			}
 
 			newSource = source;
 
@@ -249,7 +284,12 @@ void OBSBasicSourceSelect::on_buttonBox_accepted()
 
 		QString source_name = item->text();
 		AddExisting(QT_TO_UTF8(source_name), visible, false, nullptr,
-			    nullptr, nullptr);
+			    nullptr, nullptr, mode);
+
+		if (mode == OBSBasicSourceSelectMode::CollectionAudio) {
+			done(DialogCode::Accepted);
+			return;
+		}
 
 		OBSBasic *main =
 			reinterpret_cast<OBSBasic *>(App()->GetMainWindow());
@@ -293,6 +333,9 @@ void OBSBasicSourceSelect::on_buttonBox_accepted()
 		undo_s.add_action(QTStr("Undo.Add").arg(source_name), undo,
 				  redo, "", "");
 	} else {
+		const int initialEditorTrack = SelectedAudioTrack();
+		if (routeRequired && initialEditorTrack == 0)
+			return;
 		if (ui->sourceName->text().isEmpty()) {
 			OBSMessageBox::warning(this,
 					       QTStr("NoNameEntered.Title"),
@@ -301,11 +344,16 @@ void OBSBasicSourceSelect::on_buttonBox_accepted()
 		}
 
 		if (!AddNew(this, id, QT_TO_UTF8(ui->sourceName->text()),
-			    visible, newSource))
+			    visible, newSource, initialEditorTrack, mode))
 			return;
 
 		OBSBasic *main =
 			reinterpret_cast<OBSBasic *>(App()->GetMainWindow());
+		if (mode == OBSBasicSourceSelectMode::CollectionAudio) {
+			done(DialogCode::Accepted);
+			return;
+		}
+
 		std::string scene_name =
 			obs_source_get_name(main->GetCurrentSceneSource());
 		auto undo = [scene_name, main](const std::string &data) {
@@ -327,8 +375,10 @@ void OBSBasicSourceSelect::on_buttonBox_accepted()
 			wrapper, "name",
 			ui->sourceName->text().toUtf8().constData());
 		obs_data_set_bool(wrapper, "visible", visible);
+		obs_data_set_int(wrapper, "initial_editor_track",
+				 initialEditorTrack);
 
-		auto redo = [scene_name, main](const std::string &data) {
+			auto redo = [scene_name, main](const std::string &data) {
 			OBSSourceAutoRelease scene_source =
 				obs_get_source_by_name(scene_name.c_str());
 			main->SetCurrentScene(scene_source.Get(), true);
@@ -338,7 +388,10 @@ void OBSBasicSourceSelect::on_buttonBox_accepted()
 			OBSSource source;
 			AddNew(NULL, obs_data_get_string(dat, "id"),
 			       obs_data_get_string(dat, "name"),
-			       obs_data_get_bool(dat, "visible"), source);
+			       obs_data_get_bool(dat, "visible"), source,
+			       (int)obs_data_get_int(dat,
+						     "initial_editor_track"),
+			       OBSBasicSourceSelectMode::SceneItem);
 			OBSSceneItemAutoRelease item =
 				obs_scene_sceneitem_from_source(
 					main->GetCurrentScene(), source);
@@ -352,6 +405,24 @@ void OBSBasicSourceSelect::on_buttonBox_accepted()
 	}
 
 	done(DialogCode::Accepted);
+}
+
+int OBSBasicSourceSelect::SelectedAudioTrack() const
+{
+	return routeTrack ? routeTrack->currentData().toInt() : 0;
+}
+
+void OBSBasicSourceSelect::UpdateAcceptEnabled()
+{
+	if (!routeTrack)
+		return;
+
+	const bool creating = ui->createNew->isChecked();
+	routeLabel->setEnabled(creating);
+	routeTrack->setEnabled(creating && !routeFixedMix);
+	ui->buttonBox->button(QDialogButtonBox::Ok)
+		->setEnabled(!creating || !routeRequired ||
+			     SelectedAudioTrack() != 0);
 }
 
 void OBSBasicSourceSelect::on_buttonBox_rejected()
@@ -375,15 +446,98 @@ template<typename T> static inline T GetOBSRef(QListWidgetItem *item)
 }
 
 OBSBasicSourceSelect::OBSBasicSourceSelect(OBSBasic *parent, const char *id_,
-					   undo_stack &undo_s)
+					   undo_stack &undo_s,
+					   OBSBasicSourceSelectMode mode_,
+					   int selectedEditorTrack)
 	: QDialog(parent),
 	  ui(new Ui::OBSBasicSourceSelect),
 	  id(id_),
-	  undo_s(undo_s)
+	  undo_s(undo_s),
+	  mode(mode_)
 {
 	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
 	ui->setupUi(this);
+	if (mode == OBSBasicSourceSelectMode::CollectionAudio) {
+		ui->createNew->hide();
+		ui->selectExisting->hide();
+		ui->sourceList->hide();
+		routeLabel = new QLabel(QTStr("Basic.SourceSelect.AudioTrack"),
+					this);
+		routeTrack = new QComboBox(this);
+		routeLabel->setBuddy(routeTrack);
+		routeTrack->setAccessibleName(
+			QTStr("Basic.SourceSelect.AudioTrack"));
+
+		const OBSPTAudioRoutingModel &routing =
+			parent->GetAudioRoutingModel();
+		const bool applicationAudio =
+			strcmp(id_, "wasapi_process_output_capture") == 0;
+		const bool desktopAudio = !applicationAudio &&
+			strstr(id_, "output_capture") != nullptr;
+		const bool inputAudio = strstr(id_, "input_capture") != nullptr;
+		const OBSPTAudioSourceKind kind =
+			desktopAudio
+				? OBSPTAudioSourceKind::DesktopAudio
+				: applicationAudio
+					  ? OBSPTAudioSourceKind::ApplicationAudio
+					  : inputAudio
+						    ? OBSPTAudioSourceKind::AudioInput
+						    : OBSPTAudioSourceKind::Other;
+		QSet<int> occupiedTracks;
+		for (int track = OBSPTAudioRoutingModel::FirstEditorTrack;
+		     track <= OBSPTAudioRoutingModel::LastEditorTrack; ++track) {
+			if (!routing.SourcesForTrack(track).isEmpty())
+				occupiedTracks.insert(track);
+		}
+		const OBSPTAudioSourceCreationPolicy policy =
+			ResolveAudioSourceCreationPolicy(true, kind,
+						 selectedEditorTrack,
+						 occupiedTracks);
+		routeRequired = policy.routeRequired;
+		routeFixedMix = policy.fixedMix;
+
+		if (policy.fixedMix) {
+			routeTrack->addItem(
+				QTStr("AudioRouting.TrackLabel")
+					.arg(OBSPTAudioRoutingModel::MixTrack)
+					.arg(routing.TrackName(
+						OBSPTAudioRoutingModel::MixTrack)),
+				0);
+		} else {
+			if (policy.routeRequired) {
+				routeTrack->addItem(
+					QTStr("Basic.SourceSelect.AudioTrack.Required"),
+					0);
+			}
+
+			for (int track =
+				     OBSPTAudioRoutingModel::FirstEditorTrack;
+			     track <= OBSPTAudioRoutingModel::LastEditorTrack;
+			     ++track) {
+				routeTrack->addItem(
+					QTStr("AudioRouting.TrackLabel")
+						.arg(track)
+						.arg(routing.TrackName(track)),
+					track);
+			}
+
+			if (policy.initialEditorTrack != 0) {
+				routeTrack->setCurrentIndex(
+					routeTrack->findData(
+						policy.initialEditorTrack));
+			}
+		}
+		ui->verticalLayout_2->insertWidget(2, routeLabel);
+		ui->verticalLayout_2->insertWidget(3, routeTrack);
+		ui->sourceVisible->hide();
+		connect(ui->createNew, &QRadioButton::toggled, this,
+			&OBSBasicSourceSelect::UpdateAcceptEnabled);
+		connect(routeTrack,
+			QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+			&OBSBasicSourceSelect::UpdateAcceptEnabled);
+		UpdateAcceptEnabled();
+	}
 
 	ui->sourceList->setAttribute(Qt::WA_MacShowFocusRect, false);
 
@@ -402,7 +556,9 @@ OBSBasicSourceSelect::OBSBasicSourceSelect(OBSBasic *parent, const char *id_,
 
 	installEventFilter(CreateShortcutFilter());
 
-	if (strcmp(id_, "scene") == 0) {
+	if (mode == OBSBasicSourceSelectMode::CollectionAudio) {
+		adjustSize();
+	} else if (strcmp(id_, "scene") == 0) {
 		OBSBasic *main =
 			reinterpret_cast<OBSBasic *>(App()->GetMainWindow());
 		OBSSource curSceneSource = main->GetCurrentSceneSource();

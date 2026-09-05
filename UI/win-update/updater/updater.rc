@@ -87,8 +87,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,0,0,1
- PRODUCTVERSION 1,0,0,1
+ FILEVERSION 1,1,0,0
+ PRODUCTVERSION 1,1,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -105,12 +105,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "obsproject.com"
             VALUE "FileDescription", "OBS Updater"
-            VALUE "FileVersion", "1.0.0.1"
+            VALUE "FileVersion", "1.1.0"
             VALUE "InternalName", "updater.exe"
             VALUE "LegalCopyright", "Copyright (C) 2013 Richard Stanway"
             VALUE "OriginalFilename", "updater.exe"
             VALUE "ProductName", "OBS Updater"
-            VALUE "ProductVersion", "1.0.0.1"
+            VALUE "ProductVersion", "1.1.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -142,4 +142,3 @@ IDI_ICON1               ICON                    "../../../cmake/winrc/obs-studio
 
 /////////////////////////////////////////////////////////////////////////////
 #endif    // not APSTUDIO_INVOKED
-

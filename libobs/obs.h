@@ -1128,6 +1128,15 @@ EXPORT void obs_source_set_audio_mixers(obs_source_t *source, uint32_t mixers);
 EXPORT uint32_t obs_source_get_audio_mixers(const obs_source_t *source);
 
 /**
+ * Sets whether an audio source contributes directly to the main audio mix
+ * without being attached to an output Scene or Scene Item.
+ */
+EXPORT void obs_source_set_audio_mix_root(obs_source_t *source, bool enabled);
+
+/** Gets whether the source is a direct audio mix root. */
+EXPORT bool obs_source_audio_mix_root(const obs_source_t *source);
+
+/**
  * Increments the 'showing' reference counter to indicate that the source is
  * being shown somewhere.  If the reference counter was 0, will call the 'show'
  * callback.
