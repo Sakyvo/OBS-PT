@@ -2,7 +2,7 @@
 
 **Status**: Active
 **Owner**: OBS-PT Core
-**Last Updated**: 2026-07-13 (bootstrap v3; hardware encoder initialization boundary; primary-display defaults; OBS-PT AMF preset and resolution-aware QP; Hybrid MP4; GitHub stable updater)
+**Last Updated**: 2026-07-27 (bootstrap v3; unified-audio major-update reset; hardware encoder initialization boundary; primary-display defaults; OBS-PT AMF preset and resolution-aware QP; Hybrid MP4; GitHub stable updater)
 
 ## Overview
 
@@ -97,7 +97,7 @@ encoder_probe_result_t probe_record_encoder(void);
 
 **Priority Order**:
 1. `jim_nvenc` (NVIDIA NVENC, OBS fork)
-2. `amd_amf_h264` (AMD AMF H.264)
+2. `h264_texture_amf` (AMD AMF H.264, texture-amf)
 3. `obs_qsv11` (Intel Quick Sync Video)
 4. `ffmpeg_nvenc` (NVIDIA NVENC, FFmpeg wrapper)
 5. `obs_x264` (software fallback)
@@ -120,7 +120,7 @@ encoder_probe_result_t probe_record_encoder(void);
 
 ### Encoder ID Confirmation
 
-**AMD AMF**: Confirmed as `amd_amf_h264` via grep of upstream UI code:
+**AMD AMF**: `h264_texture_amf` via the texture-amf plugin (issue 057; legacy `amd_amf_h264` from the enc-amf submodule is retired per ADR 0004). Original confirmation was via grep of upstream UI code:
 ```bash
 $ grep -r 'amd_amf' UI/
 UI/window-basic-settings.cpp:  if (id == "amd_amf_h264") ...
@@ -177,7 +177,7 @@ int apply_encoder_to_profile(const char *profile_name,
                              const char *encoder_id, int cqp);         // late, full template
 ```
 
-`OBSPT_BOOTSTRAP_VERSION` is currently **3** (`UI/obspt-bootstrap.h`).
+`OBSPT_BOOTSTRAP_VERSION` is currently **4** (`UI/obspt-bootstrap.h`). v4 (issue 059) re-probes the encoder and rewrites the Profile's encoder selection to complete the enc-amf → texture-amf migration (ADR 0004). The monitor-video repair is gated to trees older than v3.
 
 ### 3. Contracts
 
@@ -206,7 +206,7 @@ int apply_encoder_to_profile(const char *profile_name,
 **Late bootstrap**:
 - Runs inside `OBSBasic::OBSInit()` after `obs_post_load_modules()`.
 - Receives the already opened `basicConfig` as `active_config`.
-- Probes encoders, then writes a **COMPLETE per-encoder** `recordEncoder.json` via `apply_encoder_to_profile(profile, encoder_id, cqp)` — builds a **fresh `obs_data`** (NOT load-and-mutate), so no encoder-mismatched keys ever survive an encoder switch. Quality is selected from `active_config` `BaseCY`: AMD AMF uses `<1080 → 22`, otherwise `27`; every other encoder uses `<1080 → 20`, otherwise `27`. After JSON saves, writes the probed ID to active `[AdvOut] RecEncoder` before `ResetOutputs()`, so Settings selects the same encoder and loads that JSON. Also writes absolute `<Install Root>/recordings` to both `[AdvOut] RecFilePath` and `[SimpleOutput] FilePath`.
+- Probes encoders, then writes a **COMPLETE per-encoder** `recordEncoder.json` via `apply_encoder_to_profile(profile, encoder_id, cqp)` — builds a **fresh `obs_data`** (NOT load-and-mutate), so no encoder-mismatched keys ever survive an encoder switch. Quality is selected from `active_config` `BaseCY`: AMD AMF uses `<1080 → 22`, otherwise `27`; every other encoder uses `<1080 → 20`, otherwise `27`. After JSON saves, writes the probed ID to active `[AdvOut] RecEncoder` before `ResetOutputs()`, so Settings selects the same encoder and loads that JSON. The same probed ID is also written to active `[AdvOut] Encoder` so the Streaming tab comes up with the hardware encoder selected on first run (issue 043); the streaming sub-settings keep the packaged `streamEncoder.json` defaults. For `[SimpleOutput] FilePath`, `[AdvOut] RecFilePath`, and `[AdvOut] FFFilePath`, expands an empty value or the packaged `recordings` placeholder to absolute `<Install Root>/recordings`; any other existing value is user-owned and must survive first-run, repair, and version-bump bootstrap unchanged.
 - Returns `true` when a first-run/repair pass ran (caller should show the welcome) and sets `*out_is_software` from the probe. It no longer shows a dialog itself — the QMessageBox `ShowFirstRunRecommendationsDialog` was removed; after `OnFirstLoad()` emits `OBS_FRONTEND_EVENT_FINISHED_LOADING`, `window-basic-main.cpp` waits 500 ms and then shows the multi-page `OBSWelcome` wizard (`window-basic-welcome.{hpp,cpp}` + `forms/OBSWelcome.ui`). The wizard is also reopenable from the About dialog's "About" link. See `.docs/archive/trellis-tasks/06-15-welcome-dialog/`.
 - Does not write `[OBSPT] FirstRunCompleted=true` itself. It returns `true`
   when the caller must show `OBSWelcome`; `window-basic-main.cpp` connects the
@@ -224,7 +224,11 @@ int apply_encoder_to_profile(const char *profile_name,
 | `jim_nvenc` (default) | `rate_control:"CQP"`, `cqp`, `preset2:"p1"`, `tune:"hq"`, `multipass:"disabled"`, `profile:"high"`, `bf:0`, `psycho_aq:false`. Do not write legacy `preset` for fresh/bootstrap defaults; `jim_nvenc` now reads modern P1-P7 settings and uses `nvEncGetEncodePresetConfigEx`. Existing profiles with legacy `preset` and no `preset2` are migrated by the encoder path. |
 | `ffmpeg_nvenc` | `rate_control:"CQP"`, `cqp`, `preset2:"p1"`, `tune:"hq"`, `multipass:"disabled"`, `profile:"high"`, `bf:0`, `psycho_aq:false` |
 | `obs_qsv11` | `rate_control:"CQP"`, `qpi=qpp=qpb=cqp`, `target_usage:"quality"`, `profile:"high"`, `keyint_sec:2`, `bframes:3`, `latency:"normal"` |
-| `amd_amf_h264` | Exact plugin IDs: `AMF.H264.Preset:-1`, `AMF.H264.Usage:0`, `AMF.H264.QualityPreset:0` (Speed/maximum performance), `AMF.H264.Profile:100` (High), `AMF.H264.RateControlMethod:0` (CQP), `AMF.H264.QP.IFrame=AMF.H264.QP.PFrame=AMF.H264.QP.BFrame=cqp` (`22` below 1080p, otherwise `27`), `AMF.H264.VBVBuffer:1`, `AMF.H264.VBVBuffer.Size:100000`, `AMF.H264.KeyframeInterval:2.0`, `AMF.H264.BFrame.Pattern:0`. Never write unprefixed aliases. The top-level Preset combo exposes exactly one localized entry named `OBS-PT`, mapped to `Presets::None (-1)`, so it does not apply or lock a legacy template; the separate Quality Preset combo retains Speed/Balanced/Quality. |
+| `h264_texture_amf` | Issue 059: texture-amf (upstream 30.2) property schema. `rate_control:"CQP"`, `cqp` (`22` below 1080p, otherwise `27`), `keyint_sec:2`, `preset:"speed"`, `profile:"high"`, `bf:0`. Replaces the legacy `AMF.H264.*` exact-key template (ADR 0004). |
+| `jim_hevc_nvenc` | Issue 056: HEVC NVENC template. `rate_control:"CQP"`, `cqp`, `preset2:"p1"`, `tune:"hq"`, `multipass:"disabled"`, `profile:"main"`, `keyint_sec:2`, `bf:0`. |
+| `h265_texture_amf` | Issue 057: HEVC AMF template. `rate_control:"CQP"`, `cqp`, `keyint_sec:2`, `preset:"speed"`, `profile:"main"`, `bf:0`. |
+| `jim_av1_nvenc` | Issue 056: AV1 NVENC template. `rate_control:"CQP"`, `cqp`, `preset2:"p1"`, `tune:"hq"`, `multipass:"disabled"`, `profile:"main"`, `keyint_sec:2`. |
+| `av1_texture_amf` | Issue 057: AV1 AMF template. `rate_control:"CQP"`, `cqp`, `keyint_sec:2`, `preset:"speed"`, `profile:"main"`. |
 | `obs_x264` | `rate_control:"CRF"`, `crf:cqp`, `preset:"veryfast"`, `profile:"high"`, `tune:""`, `keyint_sec:2`, `x264opts:""` (drop all NVENC keys; 480fps software is a correctness fallback, not performant) |
 
 OBS treats CQP/CRF/QP as one 0–51 quality scale (`window-basic-main-outputs.cpp` `CalcCRF`), so the same `cqp` value maps 1:1 across all encoders.
@@ -495,8 +499,10 @@ endif()
 #### 1. Scope / Trigger
 
 The packaged `obs-studio/` tree is the canonical fresh default for first
-install, but in-place reinstall must preserve an existing User Data Root unless
-the installer user explicitly chooses to overwrite it.
+install. For the unified-audio major update, in-place installation requires a
+configuration reset because the old audio topology is intentionally not
+migrated; the reset still restores only the preserved user categories defined
+below.
 
 #### 2. Signatures / Files
 
@@ -505,7 +511,6 @@ the installer user explicitly chooses to overwrite it.
   `$PLUGINSDIR` only during install; it is not installed into `<Install Root>`.
 - User Data Root: `<Install Root>/obs-studio/`.
 - Packaged defaults: `${SOURCE_DIR}/obs-studio/`.
-- Installer variable: `$OverrideConfig`, default `0`.
 - `InstallDir ""` is the sentinel for no explicit directory. NSIS parses a
   command-line `/D=<Install Root>` before `.onInit`, so a non-empty `$INSTDIR`
   must be preserved even when it equals `C:\OBS-PT`.
@@ -515,15 +520,46 @@ the installer user explicitly chooses to overwrite it.
 
 #### 3. Contracts
 
-- The English installer must show a custom "Overwrite Configuration" page after
-  the directory page and before file installation.
-- The "Overwrite existing OBS-PT configuration with packaged defaults" checkbox
-  is unchecked by default.
-- Unchecked: setup updates program files but must leave an existing
-  `<Install Root>/obs-studio/` byte-for-byte under the same path after install.
-- Checked: setup must show a `MB_YESNO|MB_ICONEXCLAMATION` confirmation before
-  leaving the configuration page.
-- Checked + confirmed: setup replaces `<Install Root>/obs-studio/` with
+- The reset is generation-aware. The installer reads
+  `[OBSPT] BootstrapVersion` from the existing
+  `<Install Root>/obs-studio/global.ini`.
+  - **Upgrade never deploys the User Data Root templates.** The installer
+    copies only program files (`bin/`, `data/`, `obs-plugins/`, plus
+    `cmake/`,`include/`,`recordings/`) via per-directory `File /r` and does NOT
+    blanket-copy `obs-studio/`; the `obs-studio/` templates from
+    `${SOURCE_DIR}/obs-studio/` deploy only when no User Data Root exists
+    (fresh install, legacy reset which renamed it away, or an explicit
+    force-reset). This is the root fix for “install swallowed my hotkeys /
+    output paths”.
+  - A root whose `BootstrapVersion` is at least the installer's
+    `CONFIG_GENERATION` floor is already current: setup overlays program files
+    over it and must not show a reset page, rename the User Data Root, or run
+    the merge helper. Every user setting — including but not limited to the
+    preserved categories below — survives by construction. This is the
+    first-class update/reinstall path from 1.1.0 onward.
+  - **Force-reset (覆盖安装设置).** On an existing current-generation User
+    Data Root only, the installer shows a checkbox page after the reset page
+    (default unchecked). Checking it and confirming backs the current User
+    Data Root up to `obs-studio.__obspt_backup` (kept, not deleted), deploys
+    the fresh `obs-studio/` templates, skips the legacy preserve-merge, and
+    shows the backup location on the finish page. This is the explicit
+    “restore factory defaults” action — the only `强覆盖` (force-override)
+    trigger besides legacy upgrade.
+  - A root whose `BootstrapVersion` is below the floor, missing the `[OBSPT]`
+    section, or has an unreadable `global.ini` is legacy: the English installer
+    shows a custom "Reset Configuration" page after the directory page and
+    before file installation, with a `MB_YESNO|MB_ICONEXCLAMATION`
+    confirmation before leaving that page. A fresh install (no User Data Root)
+    has no reset choice and installs the packaged defaults directly.
+  - Raise `CONFIG_GENERATION` only when a future release changes the
+    configuration format; same-generation updates never reset.
+- A confirmed legacy reset replaces `<Install Root>/obs-studio/` with
+  packaged defaults, then merges the preserved categories below. The merge is
+  retried once on failure (a transient cause, e.g. antivirus scanning freshly
+  extracted files, deserves one retry); a persistent failure keeps the backup
+  directory and leaves an `obspt-preserve-error.log` next to the User Data
+  Root with the helper's actual exception and stack trace.
+- Confirmed reset: setup replaces `<Install Root>/obs-studio/` with
   packaged defaults, then restores the preserved parts from the previous User
   Data Root:
   - stream settings: `service.json`, `streamEncoder.json`, and stream-related
@@ -534,8 +570,11 @@ the installer user explicitly chooses to overwrite it.
     Scene Collection JSON `hotkeys` fields;
   - replay buffer: Profile `RecRB*` keys and Global Config automatic replay
     buffer settings.
+- The reset helper must not restore `General.RunAsAdministrator` or
+  `Output.Mode`; those values come from the packaged defaults together with the
+  rest of the major-update configuration.
 - Fresh install with no existing `<Install Root>/obs-studio/` must install the
-  packaged defaults regardless of checkbox state.
+  packaged defaults without showing a reset choice.
 - `SecMain` must call `RequireOBSClosed` before `PrepareExistingConfig`,
   `File /r`, shortcuts, registry writes, or any other installation step.
 - Process detection uses `Get-Process -Name OBS-PT`; found processes show an
@@ -561,8 +600,7 @@ OBS launch entries must start in `<Install Root>/bin/64bit`:
 
 | Condition | Required behavior |
 |---|---|
-| Existing `obs-studio/`, checkbox unchecked | Temporarily move old `obs-studio/`, copy files, remove newly copied packaged `obs-studio/`, restore old directory |
-| Existing `obs-studio/`, checkbox checked + confirmed | Temporarily move old `obs-studio/`, copy files, merge preserved settings from backup, remove backup only after merge success |
+| Existing `obs-studio/`, reset confirmed | Temporarily move old `obs-studio/`, copy files, merge preserved settings from backup, remove backup only after merge success |
 | User clicks No in overwrite confirmation | Stay on the configuration page and do not install yet |
 | Existing config cannot be moved or restored | Show a stop dialog and abort without deleting the backup |
 | Merge helper fails | Keep the previous config backup and show its path in a warning |
@@ -574,22 +612,34 @@ OBS launch entries must start in `<Install Root>/bin/64bit`:
 
 #### 5. Good / Base / Bad Cases
 
-- Good: reinstall with the checkbox unchecked keeps an existing
-  `obs-studio/global.ini` and Profile files unchanged while program binaries are
-  refreshed.
+- Good: installing over a current-generation User Data Root overlays program
+  files without a reset page and leaves every user setting intact; installing
+  over a legacy-generation root shows the reset page, confirmation deploys
+  packaged defaults, and only the four preservation categories are merged
+  back.
 - Base: fresh install seeds the packaged PotPvP defaults, including the current
-  `global.ini` DockState and Profile defaults.
-- Bad: recursive `File /r` overwrites the active User Data Root on a normal
-  reinstall without explicit confirmation.
+  `global.ini` DockState and Profile defaults without showing a reset warning.
+- Bad: a blanket recursive `File /r "${SOURCE_DIR}\*.*"` overwrites an
+  existing User Data Root during upgrade (a 047 regression), or startup
+  attempts to migrate legacy routing after installation. The force-reset
+  checkbox must never appear on a fresh install.
 
 #### 6. Tests Required
 
 - Static check: verify `Page custom ConfigPageCreate ConfigPageLeave`,
-  `$OverrideConfig` default `0`, and the PowerShell helper extraction exist in
-  `UI/installer/obspt-setup.nsi`.
+  `NeedsConfigReset`, the `CONFIG_GENERATION` floor, the `BootstrapVersion`
+  generation gate, one merge retry with `Sleep`, and the PowerShell helper
+  extraction exist in `UI/installer/obspt-setup.nsi`; verify the old directory
+  existence reset is gone. Issue 047: verify the blanket `File /r
+  "${SOURCE_DIR}\*.*"` is absent, program files copy per-directory, the
+  `obs-studio/` templates deploy only under the `IfFileExists` gate, and the
+  force-reset page/checkbox (`ForceResetPageCreate`, `NSD_CreateCheckBox`,
+  `OBSPT_FRCheckbox`, `OBSPT_FRConfirmMsg`, backup to
+  `obs-studio.__obspt_backup`) exists.
 - Merge helper check: run `obspt-preserve-config.ps1` against temporary old/new
   `obs-studio/` trees and assert stream files, recording paths, `[Hotkeys]`, and
-  replay buffer keys survive.
+  replay buffer keys survive; for the failure path, force the helper to die and
+  assert it leaves an `obspt-preserve-error.log` next to the target root.
 - Installer refresh: assert no `makensis.exe` process exists, run exactly one
   NSIS build with enough command timeout for full compression, and wait for it
   to exit successfully. Then require both `7z t` and an actual launch to the
@@ -603,10 +653,11 @@ OBS launch entries must start in `<Install Root>/bin/64bit`:
   value after the test.
 - With `OBS-PT.exe` running, advance to Install, click Retry, and assert the
   target tree is unchanged and the prompt returns; Cancel must exit setup.
-- Smoke install if behavior changed: install once over a disposable existing
-  User Data Root with checkbox unchecked and assert active config files remain
-  unchanged; repeat with checkbox checked and assert packaged defaults are
-  present while preserved keys survive.
+- Smoke install if behavior changed: install over a disposable
+  current-generation User Data Root and assert no reset page and no backup; over
+  a legacy root, reject once and assert no writes, then confirm and assert
+  packaged defaults are present while preserved keys survive. A disposable
+  fresh root must skip the reset page.
 
 #### 7. Wrong vs Correct
 
@@ -736,6 +787,33 @@ Section "OBS-PT" SecMain
 SectionEnd
 ```
 
+### Default-Setting Policy (预置 / 强覆盖)
+
+OBS-PT divides every default-setting write into two classes, enforced across
+both the bootstrap and the installer (see `CONTEXT.md` glossary terms
+`Preset Setting` / `Force-Override Setting` / `覆盖安装设置`).
+
+- **Preset (预置)** — the norm. A default is written only when the target key
+  is absent (no User Value) or holds the packaged placeholder (e.g. the
+  `recordings` recording-path placeholder). Any existing user value is never
+  overwritten on a normal launch, an upgrade, or a repair. Examples:
+  recording paths (`OBSPTPlanRecordPaths`), the first-run probe writes
+  (`AdvOut.RecEncoder` / `AdvOut.Encoder`), and the many `config_set_default_*`
+  calls that only establish a default shown until the user changes it.
+- **Force-override (强覆盖)** — the single exception. `RunAsAdministrator`
+  (`设置 › 高级 › 常规`) is `config_set_default_bool(..., true)`: a pure
+  default, never written to a User Value by the bootstrap, so a user-set
+  value survives every launch and upgrade. It is reset back to its default
+  only by an explicit force-reset install (issue 047) or the legacy upgrade
+  reset. Nothing else is force-overridden.
+
+**Audit invariant (Issue 048):** no `obspt-bootstrap.cpp` `config_set_*`
+write clobbers an existing User Value on a normal launch. Every bootstrap
+write is either first-run/repair-gated (runs only when no prior user config
+or on a declared repair) or preset (absent/placeholder-only). The `smoke`
+static check asserts the bootstrap never writes `RunAsAdministrator` and that
+record-path default fills go through `OBSPTPlanRecordPaths`.
+
 ### Scene Collection JSON Contract
 
 OBS-PT default scene collections must use the same shape that `OBSBasic::LoadData()` writes and reads:
@@ -831,8 +909,23 @@ and a separate task explicitly evaluates Replay Buffer.
 - Normal recording output id: `hybrid_mp4 -> mp4_output`; other standard
   formats keep `ffmpeg_muxer`.
 - Shipped default: `UI/data/obspt-defaults/.../PotPvP/basic.ini`
-  `[AdvOut] RecFormat=hybrid_mp4` and `RecTracks=1` (record audio track 1
-  only by default).
+  `[AdvOut] RecFormat=hybrid_mp4`, `[Output] AudioBitrate=160`, and no legacy
+  recording-track mask. `SimpleOutput.FilePath` and `AdvOut.RecFilePath` use
+  the portable `recordings` placeholder, which bootstrap resolves to
+  `<Install Root>/recordings` at runtime. The shipped `PotPvP.json` owns the default Audio
+  Routing Configuration: Desktop Audio has a stable Source Identity and the
+  five Editor Track names are `Game`, `Music`, `Microphone`, `Voice Chat`, and
+  `Aux`. Each output derives its track topology from that Scene Collection.
+- The shipped Scene Collection seeds `minecraft-sound` (`javaw.exe`, Track 2,
+  Source Identity `obspt-default-minecraft-sound`) and `music` (`vivaldi.exe`,
+  Track 3, Source Identity `obspt-default-music`). Both use process-name
+  matching (`priority=3`) and contain neither a `window` selector nor a random
+  development-machine UUID.
+- Pure-audio entries in `sources[]` intentionally have no Scene Item. Runtime
+  loading must retain a strong collection-owned reference and set the libobs
+  audio-mix-root flag; otherwise the source can capture successfully but never
+  reach the output mix. Visual sources continue to enter the mix through their
+  Scene Item graph and must not be marked as audio-mix roots.
 - Fresh fallback defaults in `OBSBasic::InitBasicConfigDefaults()` must set both
   simple and advanced `RecFormat` defaults to `hybrid_mp4`.
 - Native output registration: `plugins/obs-outputs/obs-outputs.c` must register
@@ -862,7 +955,7 @@ and a separate task explicitly evaluates Replay Buffer.
 
 | Condition | Required behavior |
 |---|---|
-| New install / fresh default Profile | `RecFormat=hybrid_mp4`, `AutoRemux=false`, `FPSNum=480`, `RecTracks=1` |
+| New install / fresh default Profile | `RecFormat=hybrid_mp4`, `AutoRemux=false`, `FPSNum=480`, unified `AudioBitrate=160`, explicit default Audio Routing Configuration, and no legacy track override |
 | Normal recording with `hybrid_mp4` | Creates `mp4_output`, generated path ends in `.mp4` |
 | Normal recording with ordinary `mp4` | Creates `ffmpeg_muxer`, ordinary MP4 warning behavior remains |
 | Replay Buffer enabled while `RecFormat=hybrid_mp4` | Still creates `replay_buffer`; do not create `mp4_output` |
@@ -1234,7 +1327,7 @@ key staged files that justify the user retest.
 # started against the same OutFile.
 & makensis.exe UI/installer/obspt-setup.nsi  # 5-second tool timeout
 & makensis.exe UI/installer/obspt-setup.nsi
-7z t .target/_pkg/OBS-PT-1.0.0-Installer.exe
+7z t .target/_pkg/OBS-PT-1.1.0-Installer.exe
 ```
 
 #### Correct
@@ -1243,8 +1336,8 @@ if (Get-Process makensis -ErrorAction SilentlyContinue) {
     throw "makensis is already running"
 }
 & makensis.exe UI/installer/obspt-setup.nsi  # wait to normal exit
-7z t .target/_pkg/OBS-PT-1.0.0-Installer.exe
-# Launch once and assert MainWindowTitle == "OBS-PT 1.0.0 Setup".
+7z t .target/_pkg/OBS-PT-1.1.0-Installer.exe
+# Launch once and assert MainWindowTitle == "OBS-PT 1.1.0 Setup".
 ```
 
 ### Mistake: Using `strcat` for Path Construction
@@ -1411,6 +1504,93 @@ OBSBasic.StartRecording={"bindings":[{"key":"OBS_KEY_PAGEDOWN"}]}
 **Cause**: `mark_first_run_completed()` writes `FirstRunCompleted=true` through a separately opened `global.ini`, then `OBSApp::globalConfig` later saves its stale in-memory state and removes the marker.
 
 **Fix**: Set `OBS-PT.FirstRunCompleted=true` and `OBS-PT.BootstrapVersion=<current>` on the active `GetGlobalConfig()` handle, then save that handle.
+
+### Mistake: Treating a Window PID as Executable-Wide Audio Identity
+
+**Symptom**: A browser or launcher source becomes silent after its title changes,
+starts audio in a child process, opens a second same-name instance, or restarts.
+
+**Cause**: Process-name mode selected one HWND/PID instead of reconciling the
+audio sessions that actually own sound. Starting Process Loopback for both a
+parent and its child can also duplicate the same process tree and increase gain.
+
+**Fix**: Persist the executable name independently from the window tuple. Use
+`IAudioSessionManager2` to discover matching session PIDs, retain every
+independent same-name root, collapse matching parent/child sessions to one root,
+and reconcile additions/removals while the source is active. An executable
+identity that cannot be read fails closed and reports insufficient permission;
+verified instances continue.
+
+### Mistake: Rebuilding a Qt Item View During an Active Drag
+
+**Symptom**: Dragging a source intermittently crashes in `QTreeView`, or the
+source moves while one of the rebuilt track rows disappears until restart.
+
+**Cause**: The routing callback updates the model and clears/rebuilds the tree
+inside Qt's nested `QTreeWidget::startDrag()` lifetime. The accepted
+`MoveAction` and later mouse/drag cleanup still hold indexes and item pointers
+from the old presentation. Changing `InternalMove` to `DragDrop` does not make
+those borrowed objects safe. A direct unit call to `dropEvent()` misses the
+cleanup that occurs when `startDrag()` returns.
+
+**Fix**: Drag handlers exchange copied Source Identities and target values, not
+`QTreeWidgetItem *` beyond the event callback. Apply one atomic routing mutation
+and rebuild the presentation only after the nested drag lifetime has ended.
+Exactly one layer owns the semantic move, and every rebuild must recreate Track
+1-6 and M, including empty groups. Regression tests must cover completion of a
+full `startDrag()` session; invoking `dropEvent()` alone is insufficient.
+
+### Mistake: Giving a Borrowed Application Style to QProxyStyle
+
+**Symptom**: Choosing `Move to Track` from the Audio and Routing context menu
+closes the menu, briefly stalls the window, and then crashes in
+`QMenuBar::eventFilter` with `0xc0000005`.
+
+**Cause**: `QProxyStyle(QStyle *)` takes ownership of its base style, while
+`QWidget::style()` returns a borrowed style. Passing `menu.style()` into a proxy
+owned by a temporary `QMenu` makes destruction of that menu delete the shared
+application style. The next menu-bar event dereferences the freed style.
+
+**Fix**: Never pass a borrowed `QWidget::style()` pointer to an owning
+`QProxyStyle` constructor. Use an independently owned base style or render the
+special menu item without transferring shared-style ownership. Tests must open,
+trigger, and destroy the temporary context menu, then exercise the main menu bar
+to prove the shared style remains alive.
+
+### Mistake: Treating an Occupied Track Row Only as a Source
+
+**Symptom**: Adding audio while an occupied Game or Music track is selected
+still shows `Select a routing track`, while the same action works on an empty
+track.
+
+**Cause**: The first row of each track owns both the track/name cells and the
+first source cell. Rejecting every row with a Source Identity makes occupied
+tracks impossible to select as creation proposals.
+
+**Fix**: Interpret columns 0-1 of the track anchor row as track selection and
+column 2 as source selection. Source commands, context menus, and drag initiation
+also require source-column selection; track/name cells must not inherit the
+first source's commands. Non-anchor source rows, Mix, and the Muted Sources Group
+never propose a creation route. Keep creation selection in the focused model and
+cover both cell classes in tests.
+
+### Mistake: Requesting Elevation After Qt or OBS Initialization
+
+**Symptom**: Two windows, duplicated startup outputs, lost command-line options,
+or a welcome/updater dialog appears before UAC.
+
+**Cause**: Elevation was requested after constructing `QApplication` or loading
+the main application, or the relaunch rebuilt only selected arguments.
+
+**Fix**: Before `run_program()`, read
+`<Install Root>/obs-studio/global.ini` directly. A missing
+`General/RunAsAdministrator` value uses the shipped `true` default. If enabled
+and the current token is not elevated, call `ShellExecuteExW` with `runas`, the
+complete wide command-line argument sequence, and the original working
+directory. Exit only when the elevated process starts; refusal or failure
+silently continues the original process. An elevated token proceeds without a
+second request. Keep the EXE manifest `asInvoker` and the installer policy
+independent.
 
 ---
 

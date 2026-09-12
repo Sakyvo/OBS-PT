@@ -18,7 +18,7 @@ Java 1.7.10/1.8.9 PotPvP 高帧录制。项目永久采用便携化运行，默�
 ## 常用命令
 
 - 配置：
-  `& "K:/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" -S . -B .target -G "Visual Studio 17 2022" -A x64 -D "DepsPath:PATH=K:/Projects/dev/OBS-PT/deps2019/win64" -D "QTDIR:PATH=C:/Qt/5.15.2/msvc2019_64" -D "OBS_VERSION_OVERRIDE:STRING=1.0.0" -D "AMDAMF_SDKDir:PATH=K:/Projects/dev/OBS-PT/.target/_amf-sdk" -D "BUILD_BROWSER:BOOL=OFF" -D "BUILD_TESTS:BOOL=OFF" -D "BUILD_VST:BOOL=OFF" -D "COPY_DEPENDENCIES:BOOL=ON" -D "DISABLE_UPDATE_MODULE:BOOL=TRUE" -D "ENABLE_QSV11:BOOL=ON" -D "ENABLE_WINMF:BOOL=FALSE"`。
+  `& "K:/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" -S . -B .target -G "Visual Studio 17 2022" -A x64 -D "DepsPath:PATH=K:/Projects/dev/OBS-PT/deps2019/win64" -D "QTDIR:PATH=C:/Qt/5.15.2/msvc2019_64" -D "OBS_VERSION_OVERRIDE:STRING=1.1.0" -D "AMDAMF_SDKDir:PATH=K:/Projects/dev/OBS-PT/.target/_amf-sdk" -D "BUILD_BROWSER:BOOL=OFF" -D "BUILD_TESTS:BOOL=OFF" -D "BUILD_VST:BOOL=OFF" -D "COPY_DEPENDENCIES:BOOL=ON" -D "DISABLE_UPDATE_MODULE:BOOL=TRUE" -D "ENABLE_QSV11:BOOL=ON" -D "ENABLE_WINMF:BOOL=FALSE"`。
 - 构建：
   `& "K:/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" --build .target --config RelWithDebInfo --parallel`。
 - 更新器模型测试：先用 `-D "BUILD_TESTS:BOOL=ON"` 重新配置，再运行
@@ -40,6 +40,9 @@ Java 1.7.10/1.8.9 PotPvP 高帧录制。项目永久采用便携化运行，默�
   `<Install Root>/obs-studio/`。
 - 修改预置 Profile 或编码器配置时，同步更新 shipped JSON 与
   `apply_encoder_to_profile()` bootstrap 模板，并验证实际选中的编码器。
+- 修改或新增 GUI 时尽可能直接复用现有 `.ui` 控件、`QAction`、工具栏、
+  图标、`themeID`、样式及状态交互；只有现有组件无法表达需求时才新增
+  实现，并保证与相邻原版模块的视觉和行为一致。
 - 任何影响 EXE 或插件 DLL 的改动在构建验证后必须刷新 staging 和安装包。
   运行 NSIS 前确认没有 `makensis.exe`，只启动一个进程并等待正常退出；随后
   检查安装包时间戳、`7z t`、SHA-256，并实际启动到 Setup 主窗口。
@@ -49,10 +52,10 @@ Java 1.7.10/1.8.9 PotPvP 高帧录制。项目永久采用便携化运行，默�
 - 涉及领域术语、便携目录或配置层级时，读 `CONTEXT.md`。
 - 修改启动、默认 Profile、编码器映射、Hybrid MP4、更新器或安装器时，读
   `.docs/obspt-bootstrap.md`。
-- 修改 Windows Display Capture 时，读 `.docs/obsredux-display-capture.md`。
+- 修改 Windows Display Capture 时，读 `.docs/obspt-display-capture.md`。
 - 修改 MSVC 图形代码、工具链或分析高帧性能时，读
-  `.docs/obsredux-graphics-msvc.md`。
-- 继续未完成工作时，读 `.docs/issues/` 中 `Status: open` 的 Issue。
+  `.docs/obspt-graphics-msvc.md`。
+- 继续未完成工作时，读 `.docs/tasks/` 中 `Status: open` 的 Issue。
 - 追溯历史决策时，从 `.docs/archive/trellis-tasks/INDEX.md` 进入只读归档。
 
 ## 优先级

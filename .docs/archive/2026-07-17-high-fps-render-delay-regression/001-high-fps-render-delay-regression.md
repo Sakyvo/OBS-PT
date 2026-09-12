@@ -1,4 +1,4 @@
-Status: open
+Status: done
 
 # Investigate high-FPS render-delay regression
 
@@ -59,13 +59,13 @@ recording quality.
 
 ## Remaining Closure
 
-- [ ] Review the archived evidence and close this migrated issue through the
+- [x] Review the archived evidence and close this migrated issue through the
   yako wrap-up flow. The original Trellis task was still marked `in_progress`
   when migrated even though all of its acceptance criteria were satisfied.
 
 ## References
 
-- [PRD](../archive/trellis-tasks/07-13-high-fps-render-delay-regression/prd.md)
-- [Design](../archive/trellis-tasks/07-13-high-fps-render-delay-regression/design.md)
-- [Implementation plan](../archive/trellis-tasks/07-13-high-fps-render-delay-regression/implement.md)
-- [Controlled evidence](../archive/trellis-tasks/07-13-high-fps-render-delay-regression/research/initial-evidence.md)
+- [PRD](../trellis-tasks/07-13-high-fps-render-delay-regression/prd.md)
+- [Design](../trellis-tasks/07-13-high-fps-render-delay-regression/design.md)
+- [Implementation plan](../trellis-tasks/07-13-high-fps-render-delay-regression/implement.md)
+- [Controlled evidence](../trellis-tasks/07-13-high-fps-render-delay-regression/research/initial-evidence.md)
