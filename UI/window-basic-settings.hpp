@@ -413,9 +413,16 @@ private slots:
 
 	void UseStreamKeyAdvClicked();
 
+private:
+	/* Issue 063/053: hidden-theme reveal backdoor state. Only lifetime of
+	 * this dialog; never persisted, reset on next settings open. */
+	bool revealHiddenThemes = false;
+	QString debugKeyBuffer;
+
 protected:
 	virtual void closeEvent(QCloseEvent *event) override;
 	void reject() override;
+	bool eventFilter(QObject *obj, QEvent *event) override;
 
 public:
 	OBSBasicSettings(QWidget *parent);

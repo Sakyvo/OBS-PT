@@ -237,18 +237,82 @@ static void flv_audio(struct serializer *s, int32_t dts_offset,
 	s_wb32(s, (uint32_t)serializer_get_pos(s) - 1);
 }
 
+static void flv_video_codec(struct serializer *s, int32_t dts_offset,
+			    struct encoder_packet *packet, bool is_header,
+			    const char *fourcc)
+{
+	int32_t time_ms = get_ms_time(packet, packet->dts) - dts_offset;
+
+	if (!packet->data || !packet->size)
+		return;
+
+	/* Enhanced RTMP (Y2023 spec) VideoTagHeader:
+	 *   byte0 = 0x80 (ExHeader) | FrameType (0x10 key / 0x20 inter)
+	 *           | PacketType (0 seq-start / 1 frames)
+	 *   4CC  = "hvc1" / "av01"
+	 *   +3 bytes composition time offset for FRAMES (hevc only; av1 has
+	 *   none per spec — upstream omits it for av1 too)
+	 */
+	const bool is_av1 = strcmp(fourcc, "av01") == 0;
+	/* cto only exists on FRAMES packets of h264/hevc; seq-start/av1 omit it */
+	const int header_metadata_size =
+		5 + ((!is_header && !is_av1) ? 3 : 0);
+
+	s_w8(s, RTMP_PACKET_TYPE_VIDEO);
+
+#ifdef DEBUG_TIMESTAMPS
+	blog(LOG_DEBUG, "Video: %lu", time_ms);
+
+	if (last_time > time_ms)
+		blog(LOG_DEBUG, "Non-monotonic");
+
+	last_time = time_ms;
+#endif
+
+	s_wb24(s, (uint32_t)packet->size + header_metadata_size);
+	s_wb24(s, time_ms);
+	s_w8(s, (time_ms >> 24) & 0x7F);
+	s_wb24(s, 0);
+
+	s_w8(s, 0x80 | (packet->keyframe ? 0x10 : 0x20) |
+		(is_header ? 0x00 : 0x01));
+	s_write(s, fourcc, 4);
+	if (!is_header && !is_av1)
+		s_wb24(s, get_ms_time(packet, packet->pts - packet->dts));
+	s_write(s, packet->data, packet->size);
+
+	s_wb32(s, (uint32_t)serializer_get_pos(s) - 1);
+}
+
 void flv_packet_mux(struct encoder_packet *packet, int32_t dts_offset,
 		    uint8_t **output, size_t *size, bool is_header)
+{
+	flv_packet_mux_codec(packet, dts_offset, output, size, is_header, NULL);
+}
+
+void flv_packet_mux_codec(struct encoder_packet *packet, int32_t dts_offset,
+			  uint8_t **output, size_t *size, bool is_header,
+			  const char *video_codec)
 {
 	struct array_output_data data;
 	struct serializer s;
 
 	array_output_serializer_init(&s, &data);
 
-	if (packet->type == OBS_ENCODER_VIDEO)
-		flv_video(&s, dts_offset, packet, is_header);
-	else
+	if (packet->type == OBS_ENCODER_VIDEO) {
+		if (video_codec == NULL)
+			flv_video(&s, dts_offset, packet, is_header);
+		else if (strcmp(video_codec, "hevc") == 0)
+			flv_video_codec(&s, dts_offset, packet, is_header,
+					"hvc1");
+		else if (strcmp(video_codec, "av1") == 0)
+			flv_video_codec(&s, dts_offset, packet, is_header,
+					"av01");
+		else
+			flv_video(&s, dts_offset, packet, is_header);
+	} else {
 		flv_audio(&s, dts_offset, packet, is_header);
+	}
 
 	*output = data.bytes.array;
 	*size = data.bytes.num;

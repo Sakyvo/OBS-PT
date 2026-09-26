@@ -619,7 +619,7 @@ struct obs_output_info mp4_output_info = {
 	.id = "mp4_output",
 	.flags = OBS_OUTPUT_AV | OBS_OUTPUT_ENCODED |
 		 OBS_OUTPUT_MULTI_TRACK_AV | OBS_OUTPUT_CAN_PAUSE,
-	.encoded_video_codecs = "h264",
+	.encoded_video_codecs = "h264;hevc;av1",
 	.encoded_audio_codecs = "aac",
 	.get_name = mp4_output_name,
 	.create = mp4_output_create,

@@ -444,8 +444,39 @@ static int send_packet(struct rtmp_stream *stream,
 			packet, is_header ? 0 : stream->start_dts_offset, &data,
 			&size, is_header, idx);
 	} else {
-		flv_packet_mux(packet, is_header ? 0 : stream->start_dts_offset,
-			       &data, &size, is_header);
+		if (!stream->video_codec) {
+			/* first packet on track 0 settles/retrofits codec;
+			 * subsequent packets share it */
+			stream->video_codec =
+				packet->encoder
+					? obs_encoder_get_codec(packet->encoder)
+					: "h264";
+			if (!stream->video_codec || !*stream->video_codec)
+				stream->video_codec = "h264";
+		}
+
+		if (strcmp(stream->video_codec, "h264") == 0) {
+			flv_packet_mux(packet,
+				       is_header ? 0 : stream->start_dts_offset,
+				       &data, &size, is_header);
+		} else if (strcmp(stream->video_codec, "hevc") == 0) {
+			flv_packet_mux_codec(packet,
+					     is_header ? 0
+						       : stream->start_dts_offset,
+					     &data, &size, is_header,
+					     "hevc");
+		} else if (strcmp(stream->video_codec, "av1") == 0) {
+			flv_packet_mux_codec(packet,
+					     is_header ? 0
+						       : stream->start_dts_offset,
+					     &data, &size, is_header,
+					     "av1");
+		} else {
+			/* unreachable given the UI gate, still safe */
+			flv_packet_mux(packet,
+				       is_header ? 0 : stream->start_dts_offset,
+				       &data, &size, is_header);
+		}
 	}
 
 #ifdef TEST_FRAMEDROPS
@@ -809,7 +840,14 @@ static bool send_video_header(struct rtmp_stream *stream)
 		.type = OBS_ENCODER_VIDEO, .timebase_den = 1, .keyframe = true};
 
 	obs_encoder_get_extra_data(vencoder, &header, &size);
-	packet.size = obs_parse_avc_header(&packet.data, header, size);
+
+	const char *vcodec = obs_encoder_get_codec(vencoder);
+	if (vcodec && astrcmpi(vcodec, "hevc") == 0)
+		packet.size = obs_parse_hevc_header(&packet.data, header, size);
+	else if (vcodec && astrcmpi(vcodec, "av1") == 0)
+		packet.size = obs_parse_av1_header(&packet.data, header, size);
+	else
+		packet.size = obs_parse_avc_header(&packet.data, header, size);
 	return send_packet(stream, &packet, true, 0) >= 0;
 }
 
@@ -1623,8 +1661,9 @@ struct obs_output_info rtmp_output_info = {
 	.id = "rtmp_output",
 	.flags = OBS_OUTPUT_AV | OBS_OUTPUT_ENCODED | OBS_OUTPUT_SERVICE |
 		 OBS_OUTPUT_MULTI_TRACK,
-	.encoded_video_codecs = "h264",
+	.encoded_video_codecs = "h264;hevc;av1",
 	.encoded_audio_codecs = "aac",
+	.protocols = "RTMP;RTMPS",
 	.get_name = rtmp_stream_getname,
 	.create = rtmp_stream_create,
 	.destroy = rtmp_stream_destroy,

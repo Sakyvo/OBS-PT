@@ -17,7 +17,11 @@
 
 #include "mp4-mux-internal.h"
 
+#include "rtmp-hevc.h"
+#include "rtmp-av1.h"
+
 #include <obs-avc.h>
+#include <obs-hevc.h>
 #include <obs-module.h>
 #include <util/dstr.h>
 #include <util/platform.h>
@@ -471,6 +475,58 @@ static size_t mp4_write_avcC(struct mp4_mux *mux, obs_encoder_t *enc)
 	return box_size;
 }
 
+/// ISO/IEC 14496-15 8.4.1.1 HEVCConfigurationBox
+static size_t mp4_write_hvcC(struct mp4_mux *mux, obs_encoder_t *enc)
+{
+	struct serializer *s = mux->serializer;
+
+	/* For HEVC this is the parsed extra data. */
+	uint8_t *header;
+	size_t size;
+
+	struct encoder_packet packet = {.type = OBS_ENCODER_VIDEO,
+					.timebase_den = 1,
+					.keyframe = true};
+
+	if (!obs_encoder_get_extra_data(enc, &header, &size))
+		return 0;
+
+	packet.size = obs_parse_hevc_header(&packet.data, header, size);
+
+	size_t box_size = packet.size + 8;
+	write_box(s, box_size, "hvcC");
+	s_write(s, packet.data, packet.size);
+
+	bfree(packet.data);
+	return box_size;
+}
+
+/// AV1 ISOBMFF 2.3. AV1 Codec Configuration Box
+static size_t mp4_write_av1C(struct mp4_mux *mux, obs_encoder_t *enc)
+{
+	struct serializer *s = mux->serializer;
+
+	/* For AV1 this is just the parsed extra data. */
+	uint8_t *header;
+	size_t size;
+
+	struct encoder_packet packet = {.type = OBS_ENCODER_VIDEO,
+					.timebase_den = 1,
+					.keyframe = true};
+
+	if (!obs_encoder_get_extra_data(enc, &header, &size))
+		return 0;
+
+	packet.size = obs_parse_av1_header(&packet.data, header, size);
+
+	size_t box_size = packet.size + 8;
+	write_box(s, box_size, "av1C");
+	s_write(s, packet.data, packet.size);
+
+	bfree(packet.data);
+	return box_size;
+}
+
 /// 12.1.5 Colour information
 static size_t mp4_write_colr(struct mp4_mux *mux, obs_encoder_t *enc)
 {
@@ -568,6 +624,50 @@ static size_t mp4_write_avc1(struct mp4_mux *mux, obs_encoder_t *enc)
 
 	// avcC
 	mp4_write_avcC(mux, enc);
+
+	// colr
+	mp4_write_colr(mux, enc);
+
+	// pasp
+	mp4_write_pasp(mux);
+
+	return write_box_size(s, start);
+}
+
+/// ISO/IEC 14496-15 8.4.1.1 HEVCSampleEntry
+static size_t mp4_write_hvc1(struct mp4_mux *mux, obs_encoder_t *enc)
+{
+	struct serializer *s = mux->serializer;
+	int64_t start = serializer_get_pos(s);
+
+	write_box(s, 0, "hvc1");
+
+	mp4_write_visual_sample_entry(mux, enc);
+
+	// hvcC
+	mp4_write_hvcC(mux, enc);
+
+	// colr
+	mp4_write_colr(mux, enc);
+
+	// pasp
+	mp4_write_pasp(mux);
+
+	return write_box_size(s, start);
+}
+
+/// AV1 ISOBMFF 2.2. AV1 Sample Entry
+static size_t mp4_write_av01(struct mp4_mux *mux, obs_encoder_t *enc)
+{
+	struct serializer *s = mux->serializer;
+	int64_t start = serializer_get_pos(s);
+
+	write_box(s, 0, "av01");
+
+	mp4_write_visual_sample_entry(mux, enc);
+
+	// av1C
+	mp4_write_av1C(mux, enc);
 
 	// colr
 	mp4_write_colr(mux, enc);
@@ -967,6 +1067,10 @@ static size_t mp4_write_stsd(struct mp4_mux *mux, struct mp4_track *track)
 	if (track->type == TRACK_VIDEO) {
 		if (track->codec == CODEC_H264)
 			mp4_write_avc1(mux, track->encoder);
+		else if (track->codec == CODEC_HEVC)
+			mp4_write_hvc1(mux, track->encoder);
+		else if (track->codec == CODEC_AV1)
+			mp4_write_av01(mux, track->encoder);
 	} else if (track->type == TRACK_AUDIO) {
 		if (track->codec == CODEC_AAC)
 			mp4_write_mp4a(mux, track, version);
@@ -1574,6 +1678,10 @@ static size_t mp4_write_trak(struct mp4_mux *mux, struct mp4_track *track,
 {
 	struct serializer *s = mux->serializer;
 	int64_t start = serializer_get_pos(s);
+
+	/* If track has no data, omit it from full moov. */
+	if (!fragmented && !track->chunks.num)
+		return 0;
 
 	write_box(s, 0, "trak");
 
@@ -2266,7 +2374,7 @@ static void write_packets(struct mp4_mux *mux, struct mp4_track *track)
 	struct serializer *s = mux->serializer;
 
 	size_t count = track->packets.size / sizeof(struct encoder_packet);
-	if (!count)
+	if (!count || !track->fragment_samples.num)
 		return;
 
 	struct chunk *chk = da_push_back_new(track->chunks);
@@ -2416,6 +2524,10 @@ static inline enum mp4_codec get_codec(obs_encoder_t *enc)
 
 	if (strcmp(codec, "h264") == 0)
 		return CODEC_H264;
+	if (strcmp(codec, "hevc") == 0)
+		return CODEC_HEVC;
+	if (strcmp(codec, "av1") == 0)
+		return CODEC_AV1;
 	if (astrcmpi(codec, "aac") == 0)
 		return CODEC_AAC;
 	if (strcmp(codec, "opus") == 0)
@@ -2592,6 +2704,10 @@ bool mp4_mux_submit_packet(struct mp4_mux *mux, struct encoder_packet *pkt)
 	} else {
 		if (track->codec == CODEC_H264)
 			obs_parse_avc_packet(&parsed_packet, pkt);
+		else if (track->codec == CODEC_HEVC)
+			obs_parse_hevc_packet(&parsed_packet, pkt);
+		else if (track->codec == CODEC_AV1)
+			obs_parse_av1_packet(&parsed_packet, pkt);
 		else
 			return false;
 

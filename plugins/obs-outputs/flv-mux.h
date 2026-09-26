@@ -34,6 +34,10 @@ extern void flv_additional_meta_data(obs_output_t *context, uint8_t **output,
 				     size_t *size);
 extern void flv_packet_mux(struct encoder_packet *packet, int32_t dts_offset,
 			   uint8_t **output, size_t *size, bool is_header);
+extern void flv_packet_mux_codec(struct encoder_packet *packet,
+				 int32_t dts_offset, uint8_t **output,
+				 size_t *size, bool is_header,
+				 const char *video_codec);
 extern void flv_additional_packet_mux(struct encoder_packet *packet,
 				      int32_t dts_offset, uint8_t **output,
 				      size_t *size, bool is_header,

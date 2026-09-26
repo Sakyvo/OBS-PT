@@ -11,6 +11,10 @@
 #include "service-specific/showroom.h"
 #include "service-specific/dacast.h"
 
+static inline void free_video_codecs(struct rtmp_common *service);
+static inline void free_audio_codecs(struct rtmp_common *service);
+static void free_codecs_impl(char ***codecs);
+
 struct rtmp_common {
 	char *service;
 	char *server;
@@ -20,6 +24,9 @@ struct rtmp_common {
 	struct obs_service_resolution *supported_resolutions;
 	size_t supported_resolutions_count;
 	int max_fps;
+
+	char **supported_video_codecs;
+	char **supported_audio_codecs;
 
 	bool supports_additional_audio_track;
 };
@@ -109,6 +116,62 @@ static void update_recommendations(struct rtmp_common *service, json_t *rec)
 	service->max_fps = get_int_val(rec, "max fps");
 }
 
+/* Deep-copies a services.json codec string array into an owned,
+ * NULL-terminated, bfree-able char**. Entries taken as json_string_value
+ * point into the jansson parse tree: storing them raw and later bfreeing
+ * (free_codecs_impl) corrupts the heap and crashes on the next service
+ * creation (profile switch). */
+static char **dup_json_codec_array(json_t *codecs)
+{
+	if (!json_is_array(codecs))
+		return NULL;
+
+	DARRAY(char *) list;
+	da_init(list);
+
+	size_t idx;
+	json_t *item;
+	json_array_foreach(codecs, idx, item) {
+		if (!json_is_string(item))
+			continue;
+		const char *codec = json_string_value(item);
+		if (!codec)
+			continue;
+		char *copy = bstrdup(codec);
+		da_push_back(list, &copy);
+	}
+
+	if (!list.num) {
+		da_free(list);
+		return NULL;
+	}
+	char *term = NULL;
+	da_push_back(list, &term);
+	/* transfer ownership of the darray buffer; freed via bfree */
+	return list.array;
+}
+
+static void update_supported_codecs(struct rtmp_common *service, json_t *serv)
+{
+	service->supported_video_codecs = dup_json_codec_array(
+		json_object_get(serv, "supported video codecs"));
+	service->supported_audio_codecs = dup_json_codec_array(
+		json_object_get(serv, "supported audio codecs"));
+}
+
+
+const char **rtmp_common_get_supported_video_codecs(void *data)
+{
+	struct rtmp_common *service = data;
+	return service->supported_video_codecs ? (const char **)service->supported_video_codecs : NULL;
+}
+
+const char **rtmp_common_get_supported_audio_codecs(void *data)
+{
+	struct rtmp_common *service = data;
+	return service->supported_audio_codecs ? (const char **)service->supported_audio_codecs : NULL;
+}
+
 static void rtmp_common_update(void *data, obs_data_t *settings)
 {
 	struct rtmp_common *service = data;
@@ -127,6 +190,8 @@ static void rtmp_common_update(void *data, obs_data_t *settings)
 	service->supported_resolutions = NULL;
 	service->supported_resolutions_count = 0;
 	service->max_fps = 0;
+	free_video_codecs(service);
+	free_audio_codecs(service);
 
 	json_t *root = open_services_file();
 	if (root) {
@@ -143,6 +208,7 @@ static void rtmp_common_update(void *data, obs_data_t *settings)
 			if (json_is_object(rec)) {
 				update_recommendations(service, rec);
 			}
+			update_supported_codecs(service, serv);
 
 			service->supports_additional_audio_track = get_bool_val(
 				serv, "supports_additional_audio_track");
@@ -155,10 +221,37 @@ static void rtmp_common_update(void *data, obs_data_t *settings)
 		service->output = bstrdup("rtmp_output");
 }
 
+static void free_codecs_impl(char ***codecs)
+{
+	if (!*codecs)
+		return;
+
+	char **stored_codecs = *codecs;
+	char **codec;
+
+	for (codec = stored_codecs; *codec; codec++)
+		bfree(*codec);
+
+	bfree(stored_codecs);
+	*codecs = NULL;
+}
+
+static inline void free_video_codecs(struct rtmp_common *service)
+{
+	free_codecs_impl(&service->supported_video_codecs);
+}
+
+static inline void free_audio_codecs(struct rtmp_common *service)
+{
+	free_codecs_impl(&service->supported_audio_codecs);
+}
+
 static void rtmp_common_destroy(void *data)
 {
 	struct rtmp_common *service = data;
 
+	free_video_codecs(service);
+	free_audio_codecs(service);
 	bfree(service->supported_resolutions);
 	bfree(service->service);
 	bfree(service->server);
@@ -884,5 +977,6 @@ struct obs_service_info rtmp_common_service = {
 	.get_output_type = rtmp_common_get_output_type,
 	.get_supported_resolutions = rtmp_common_get_supported_resolutions,
 	.get_max_fps = rtmp_common_get_max_fps,
-	.get_max_bitrate = rtmp_common_get_max_bitrate,
+	.get_supported_video_codecs = rtmp_common_get_supported_video_codecs,
+	.get_supported_audio_codecs = rtmp_common_get_supported_audio_codecs,
 };

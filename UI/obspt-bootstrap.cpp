@@ -1,6 +1,8 @@
 #include "obspt-bootstrap.h"
+#include "obspt-bootstrap-model.h"
 #include "obspt-record-path-policy.hpp"
 #include "obs-app.hpp"
+#include "platform.hpp"
 
 #include <obs.h>
 #include <util/base.h>
@@ -155,6 +157,55 @@ static const char *POTPVP_PROFILE = "PotPvP";
 static bool g_late_bootstrap_needed = false;
 static bool g_show_first_run_dialog = false;
 static bool g_bootstrap_version_pending = false;
+/* Issue 059: the monitor-video repair (resolution write-back) is part of the
+ * v3 semantics only. v4 repairs encoders exclusively, so the video repair is
+ * gated on coming from a tree older than v3. */
+static int g_bootstrap_version_prev = 0;
+/* Issue 075 (ADR 0009): the installer records whether this tree came from an
+ * older product version; the application performs the replacement once. */
+static bool g_installer_migration_needed = false;
+
+/* Issue 075: replace the user's dock layout with the packaged default.
+ *
+ * Only [BasicWindow] DockState is replaced - `geometry` holds the user's own
+ * window size and stays theirs, and the window position is forced to centre
+ * on every launch anyway. A missing packaged default is logged and skipped
+ * rather than fatal, the same posture as on_resetUI_triggered(). */
+static void apply_packaged_default_layout(config_t *global_config)
+{
+	if (!global_config)
+		return;
+
+	std::string defaultsIni;
+	if (!GetDataFilePath("obspt-defaults/obs-studio/global.ini",
+			     defaultsIni)) {
+		blog(LOG_WARNING,
+		     "[OBS-PT] packaged default layout unavailable "
+		     "(install tree missing obspt-defaults); dock layout left "
+		     "unchanged");
+		return;
+	}
+
+	config_t *defaults = nullptr;
+	if (config_open(&defaults, defaultsIni.c_str(), CONFIG_OPEN_EXISTING) !=
+	    CONFIG_SUCCESS) {
+		blog(LOG_WARNING,
+		     "[OBS-PT] packaged default layout unreadable: %s",
+		     defaultsIni.c_str());
+		return;
+	}
+
+	const char *dockState =
+		config_get_string(defaults, "BasicWindow", "DockState");
+	if (dockState && *dockState)
+		config_set_string(global_config, "BasicWindow", "DockState",
+				  dockState);
+	else
+		blog(LOG_WARNING, "[OBS-PT] packaged default layout carries no "
+				  "DockState; dock layout left unchanged");
+
+	config_close(defaults);
+}
 
 static bool is_dir(const char *path)
 {
@@ -299,9 +350,17 @@ void prepare_obspt_global_config(config_t *global_config)
 		!first_run_completed ||
 		bootstrap_version < OBSPT_BOOTSTRAP_VERSION;
 
+	/* Issue 075: a missing marker reads as 0, so a tree the installer
+	 * never touched still migrates exactly once. */
+	int installer_migration_version = (int)config_get_int(
+		global_config, "OBSPT", "InstallerMigrationVersion");
+	g_installer_migration_needed = obspt_installer_migration_needed(
+		installer_migration_version);
+
 	g_late_bootstrap_needed = needs_repair;
 	g_show_first_run_dialog = !first_run_completed;
 	g_bootstrap_version_pending = needs_repair;
+	g_bootstrap_version_prev = bootstrap_version;
 
 	if (needs_repair) {
 		config_set_string(global_config, "Basic", "Profile",
@@ -394,7 +453,8 @@ bool run_obspt_early_bootstrap(config_t *global_config)
 		return false;
 	}
 
-	if (g_late_bootstrap_needed)
+	if (g_late_bootstrap_needed &&
+	    obspt_bootstrap_needs_video_repair(g_bootstrap_version_prev))
 		apply_monitor_video_to_profile(POTPVP_PROFILE);
 
 	if (global_config && g_bootstrap_version_pending) {
@@ -419,11 +479,31 @@ static bool encoder_registered(const char *id)
 }
 
 static const char *kEncoderPriority[] = {
-	"jim_nvenc", "amd_amf_h264", "obs_qsv11",
+	"jim_nvenc", "h264_texture_amf", "obs_qsv11",
 	"ffmpeg_nvenc", "obs_x264", nullptr,
 };
 
+/* Issue 066: recording prefers a hardware HEVC encoder; streaming keeps the
+ * H.264 probe above (HEVC streaming is a separate, codec-flagged path). */
 encoder_probe_result_t probe_record_encoder(void)
+{
+	encoder_probe_result_t r{};
+	for (int i = 0;; ++i) {
+		const char *id = obspt_recording_hevc_preference(i);
+		if (!id)
+			break;
+		if (encoder_registered(id)) {
+			r.encoder_id = id;
+			r.is_software_fallback = false;
+			return r;
+		}
+	}
+	return probe_h264_record_encoder();
+}
+
+/* The H.264 probe. Recording falls back to it when no hardware HEVC encoder
+ * is registered; streaming uses it directly. */
+encoder_probe_result_t probe_h264_record_encoder(void)
 {
 	encoder_probe_result_t r{};
 	for (int i = 0; kEncoderPriority[i]; ++i) {
@@ -591,7 +671,7 @@ void apply_record_path_to_config(config_t *cfg, const char *abs_path)
 static int recording_quality_value(const char *encoder_id, int base_cy)
 {
 	const bool below_1080 = base_cy > 0 && base_cy < 1080;
-	if (strcmp(encoder_id, "amd_amf_h264") == 0)
+	if (strcmp(encoder_id, "h264_texture_amf") == 0)
 		return below_1080 ? 22 : 27;
 
 	return below_1080 ? 20 : 27;
@@ -617,29 +697,28 @@ int apply_encoder_to_profile(const char *profile_name, const char *encoder_id,
 		obs_data_set_int(root, "qpb", cqp);
 		obs_data_set_string(root, "target_usage", "quality");
 		obs_data_set_string(root, "profile", "high");
-		obs_data_set_int(root, "keyint_sec", 2);
+		obs_data_set_int(root, "keyint_sec",
+				  obspt_recording_keyint_sec());
 		obs_data_set_int(root, "bframes", 3);
 		obs_data_set_string(root, "latency", "normal");
-	} else if (strcmp(encoder_id, "amd_amf_h264") == 0) {
-		obs_data_set_int(root, "AMF.H264.Preset", -1);
-		obs_data_set_int(root, "AMF.H264.Usage", 0);
-		obs_data_set_int(root, "AMF.H264.Profile", 100);
-		obs_data_set_int(root, "AMF.H264.QualityPreset", 0);
-		obs_data_set_int(root, "AMF.H264.RateControlMethod", 0);
-		obs_data_set_int(root, "AMF.H264.QP.IFrame", cqp);
-		obs_data_set_int(root, "AMF.H264.QP.PFrame", cqp);
-		obs_data_set_int(root, "AMF.H264.QP.BFrame", cqp);
-		obs_data_set_int(root, "AMF.H264.VBVBuffer", 1);
-		obs_data_set_int(root, "AMF.H264.VBVBuffer.Size", 100000);
-		obs_data_set_double(root, "AMF.H264.KeyframeInterval", 2.0);
-		obs_data_set_int(root, "AMF.H264.BFrame.Pattern", 0);
+	} else if (strcmp(encoder_id, "h264_texture_amf") == 0) {
+		/* Issue 059: texture-amf (upstream 30.2) property schema.
+		 * Replaces the legacy AMF.H264.* exact-key template. */
+		obs_data_set_string(root, "rate_control", "CQP");
+		obs_data_set_int(root, "cqp", cqp);
+		obs_data_set_int(root, "keyint_sec",
+				  obspt_recording_keyint_sec());
+		obs_data_set_string(root, "preset", "speed");
+		obs_data_set_string(root, "profile", "high");
+		obs_data_set_int(root, "bf", 0);
 	} else if (strcmp(encoder_id, "obs_x264") == 0) {
 		obs_data_set_string(root, "rate_control", "CRF");
 		obs_data_set_int(root, "crf", cqp);
 		obs_data_set_string(root, "preset", "veryfast");
 		obs_data_set_string(root, "profile", "high");
 		obs_data_set_string(root, "tune", "");
-		obs_data_set_int(root, "keyint_sec", 2);
+		obs_data_set_int(root, "keyint_sec",
+				  obspt_recording_keyint_sec());
 		obs_data_set_string(root, "x264opts", "");
 	} else if (strcmp(encoder_id, "ffmpeg_nvenc") == 0) {
 		obs_data_set_string(root, "rate_control", "CQP");
@@ -650,6 +729,41 @@ int apply_encoder_to_profile(const char *profile_name, const char *encoder_id,
 		obs_data_set_string(root, "profile", "high");
 		obs_data_set_int(root, "bf", 0);
 		obs_data_set_bool(root, "psycho_aq", false);
+		obs_data_set_int(root, "keyint_sec",
+				 obspt_recording_keyint_sec());
+	} else if (strcmp(encoder_id, "jim_hevc_nvenc") == 0 ||
+		   strcmp(encoder_id, "h265_texture_amf") == 0) {
+		/* Issue 056/057: HEVC recording templates share the OBS-PT
+		 * throughput philosophy (CQP, speed preset, no B-frames). */
+		obs_data_set_string(root, "rate_control", "CQP");
+		obs_data_set_int(root, "cqp", cqp);
+		if (strcmp(encoder_id, "jim_hevc_nvenc") == 0) {
+			obs_data_set_string(root, "preset2", "p1");
+			obs_data_set_string(root, "tune", "hq");
+			obs_data_set_string(root, "multipass", "disabled");
+		} else {
+			obs_data_set_string(root, "preset", "speed");
+		}
+		obs_data_set_string(root, "profile", "main");
+		obs_data_set_int(root, "keyint_sec",
+				  obspt_recording_keyint_sec());
+		obs_data_set_int(root, "bf", 0);
+	} else if (strcmp(encoder_id, "jim_av1_nvenc") == 0 ||
+		   strcmp(encoder_id, "av1_texture_amf") == 0) {
+		/* AV1 has no B-frames; QP scale differs per vendor and is
+		 * handled inside each plugin's defaults. */
+		obs_data_set_string(root, "rate_control", "CQP");
+		obs_data_set_int(root, "cqp", cqp);
+		if (strcmp(encoder_id, "jim_av1_nvenc") == 0) {
+			obs_data_set_string(root, "preset2", "p1");
+			obs_data_set_string(root, "tune", "hq");
+			obs_data_set_string(root, "multipass", "disabled");
+		} else {
+			obs_data_set_string(root, "preset", "speed");
+		}
+		obs_data_set_string(root, "profile", "main");
+		obs_data_set_int(root, "keyint_sec",
+				  obspt_recording_keyint_sec());
 	} else {
 		/* jim_nvenc (default) */
 		obs_data_set_string(root, "rate_control", "CQP");
@@ -667,6 +781,33 @@ int apply_encoder_to_profile(const char *profile_name, const char *encoder_id,
 	if (!ok)
 		blog(LOG_WARNING,
 		     "[OBS-PT] failed to write recordEncoder.json: %s",
+		     abs_path);
+	return ok ? 0 : -1;
+}
+
+int apply_stream_encoder_to_profile(const char *profile_name)
+{
+	char rel_path[512];
+	snprintf(rel_path, sizeof(rel_path),
+		 "obs-studio/basic/profiles/%s/streamEncoder.json",
+		 profile_name);
+	char abs_path[512];
+	get_portable_path(abs_path, sizeof(abs_path), rel_path);
+
+	/* Issue 073: streaming is CBR at a fixed target so push bitrate is
+	 * predictable. `rate_control` is understood by every streaming
+	 * encoder OBS-PT ships (NVENC, texture-amf, x264). The streaming
+	 * encoder id itself lives in [AdvOut] Encoder, not here. */
+	obs_data_t *root = obs_data_create();
+	obs_data_set_int(root, "bitrate", obspt_streaming_bitrate_kbps());
+	obs_data_set_string(root, "rate_control", "CBR");
+	obs_data_set_string(root, "profile", "high");
+
+	bool ok = obs_data_save_json(root, abs_path);
+	obs_data_release(root);
+	if (!ok)
+		blog(LOG_WARNING,
+		     "[OBS-PT] failed to write streamEncoder.json: %s",
 		     abs_path);
 	return ok ? 0 : -1;
 }
@@ -721,7 +862,8 @@ bool run_first_run_bootstrap_if_needed(const char *active_profile_name,
 				       bool *out_is_software)
 {
 	bool first_run = is_first_run();
-	if (!first_run && !g_late_bootstrap_needed) {
+	if (!first_run && !g_late_bootstrap_needed &&
+	    !g_installer_migration_needed) {
 		if (out_is_software)
 			*out_is_software = false;
 		return false;
@@ -741,11 +883,19 @@ bool run_first_run_bootstrap_if_needed(const char *active_profile_name,
 	if (active_config && encoder_config_result == 0) {
 		config_set_string(active_config, "AdvOut", "RecEncoder",
 				  enc.encoder_id);
-		/* Issue 043: the streaming encoder follows the same
-		 * first-run hardware probe as recording. */
+		/* Issue 043/066: the streaming encoder follows the H.264 probe,
+		 * not the recording one, so pushing keeps the compatible codec
+		 * even though recording now prefers HEVC. */
+		encoder_probe_result_t stream_enc =
+			probe_h264_record_encoder();
 		config_set_string(active_config, "AdvOut", "Encoder",
-				  enc.encoder_id);
+				  stream_enc.encoder_id);
 	}
+	/* Issue 073: the streaming slot's settings (CBR + target bitrate) live
+	 * in streamEncoder.json, which the probe above does not touch. Write it
+	 * under the same repair gate so both slots stay in lockstep. */
+	if (encoder_config_result == 0)
+		apply_stream_encoder_to_profile(active_profile_name);
 
 	char recordings_path[512];
 	get_portable_path(recordings_path, sizeof(recordings_path), "recordings");
@@ -755,6 +905,30 @@ bool run_first_run_bootstrap_if_needed(const char *active_profile_name,
 		config_save_safe(active_config, "tmp", nullptr);
 
 	bool show_welcome = first_run || g_show_first_run_dialog;
+
+	/* Issue 075 (ADR 0009): the installer-driven default replacement. Runs
+	 * after the encoder probe above so the re-probe's results are what the
+	 * migration leaves behind. The main window reads DockState and
+	 * JavaDetectionLenient after this function returns, so the replacement
+	 * takes effect on this very launch. */
+	if (g_installer_migration_needed) {
+		config_t *global_config = qApp ? GetGlobalConfig() : nullptr;
+		if (global_config) {
+			apply_packaged_default_layout(global_config);
+			/* The one deliberate exception to preset semantics: the
+			 * migration forces lenient even over an explicit 严格. */
+			config_set_bool(global_config, "General",
+					"JavaDetectionLenient", true);
+			config_set_int(global_config, "OBSPT",
+				       "InstallerMigrationVersion",
+				       OBSPT_INSTALLER_MIGRATION_VERSION);
+			config_save_safe(global_config, "tmp", nullptr);
+			blog(LOG_INFO,
+			     "[OBS-PT] installer-driven default replacement applied "
+			     "(layout, encoder, Java detection)");
+		}
+		g_installer_migration_needed = false;
+	}
 
 	g_late_bootstrap_needed = false;
 	g_show_first_run_dialog = false;

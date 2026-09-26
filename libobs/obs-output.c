@@ -2693,3 +2693,52 @@ const char *obs_output_get_supported_audio_codecs(const obs_output_t *output)
 		       ? output->info.encoded_audio_codecs
 		       : NULL;
 }
+
+const char *obs_output_get_protocols(const obs_output_t *output)
+{
+	return obs_output_valid(output, __FUNCTION__) ? output->info.protocols
+						      : NULL;
+}
+
+const char *obs_get_output_supported_video_codecs(const char *id)
+{
+	const struct obs_output_info *info = find_output(id);
+	return info ? info->encoded_video_codecs : NULL;
+}
+
+const char *obs_get_output_supported_audio_codecs(const char *id)
+{
+	const struct obs_output_info *info = find_output(id);
+	return info ? info->encoded_audio_codecs : NULL;
+}
+
+void obs_enum_output_types_with_protocol(const char *protocol, void *data,
+					 bool (*enum_cb)(void *data,
+							 const char *id))
+{
+	if (!protocol)
+		return;
+	for (size_t i = 0; i < obs->output_types.num; i++) {
+		const struct obs_output_info *info = &obs->output_types.array[i];
+		if (!info->protocols)
+			continue;
+
+		/* ':' ';' separated list, compare each as case-insensitive */
+		const char *p = info->protocols;
+		while (*p) {
+			const char *semi = strchr(p, ';');
+			size_t len = semi ? (size_t)(semi - p) : strlen(p);
+			char tok[64];
+			if (len && len < sizeof(tok)) {
+				memcpy(tok, p, len);
+				tok[len] = 0;
+				if (astrcmpi(tok, protocol) == 0) {
+					if (!enum_cb(data, info->id))
+						return;
+					break;
+				}
+			}
+			p = semi ? semi + 1 : p + len;
+		}
+	}
+}

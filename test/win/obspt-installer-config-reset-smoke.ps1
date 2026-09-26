@@ -319,17 +319,39 @@ if ($resetBody.Contains('statsDock')) {
     throw "Reset UI must not override any dock after restoreState (packaged DockState governs statsDock too)"
 }
 
-# Issue 053: hide the Acri theme from the combo; if a user already has it
+# Issue 053: hide the legacy themes (Acri, Rachni, System) from the combo
+# behind the Advanced-page 'debug' backdoor; if a user already has one
 # selected, fall back to Dark at startup and persist the change.
 $settingsCpp = [IO.File]::ReadAllText("$repo/UI/window-basic-settings.cpp")
-if (-not $settingsCpp.Contains('if (name == "Acri")')) {
-    throw "Settings theme list must skip Acri"
+foreach ($hidden in @('"Acri"', '"Rachni"', '"System"')) {
+    if (-not $settingsCpp.Contains($hidden)) {
+        throw "Settings theme list must include $hidden in the hidden set"
+    }
+}
+if (-not $settingsCpp.Contains('revealHiddenThemes')) {
+    throw "Settings theme list skip must be gated by revealHiddenThemes"
+}
+if ($settingsCpp.Contains("if (name == `"Acri`")`r`n`t`t`tcontinue;") -or
+    $settingsCpp.Contains("if (name == `"Acri`")`n`t`t`tcontinue;")) {
+    throw "Settings theme list must not use the old ungated Acri-only skip"
+}
+if (-not $settingsCpp.Contains('debugKeyBuffer == "debug"') -or
+    -not $settingsCpp.Contains('ui->settingsPages->currentWidget() == ui->advancedPage')) {
+    throw "Settings must gate reveal on lowercase 'debug' typed on the Advanced page"
+}
+$settingsHpp = [IO.File]::ReadAllText("$repo/UI/window-basic-settings.hpp")
+if (-not $settingsHpp.Contains('bool revealHiddenThemes = false;')) {
+    throw "revealHiddenThemes must default to false (per-dialog lifetime)"
 }
 $obsAppCpp = [IO.File]::ReadAllText("$repo/UI/obs-app.cpp")
-if (-not $obsAppCpp.Contains('strcmp(themeName, "Acri")') -or
-    -not $obsAppCpp.Contains('themeName = "Dark"') -or
+foreach ($legacy in @('Acri', 'Rachni', 'System')) {
+    if (-not $obsAppCpp.Contains("strcmp(themeName, `"$legacy`")")) {
+        throw "InitTheme must map $legacy to Dark"
+    }
+}
+if (-not $obsAppCpp.Contains('themeName = "Dark"') -or
     -not $obsAppCpp.Contains('config_set_string(globalConfig, "General", "CurrentTheme2", "Dark")')) {
-    throw "InitTheme must map Acri to Dark and persist the change"
+    throw "InitTheme must map the hidden themes to Dark and persist the change"
 }
 
 # Issue 054: Welcome Page4 in every shipped locale ends with the multitrack
@@ -351,6 +373,92 @@ foreach ($loc in $noticeMarkers.Keys) {
     if (-not $page4.Contains($noticeMarkers[$loc])) {
         throw "Welcome Page4 must carry the manual multitrack note in locale $loc"
     }
+}
+
+
+# Issue 066: the shipped version and the shipped default layout.
+$nsi = [IO.File]::ReadAllText("$repo/UI/installer/obspt-setup.nsi")
+if ($nsi -match 'OBS-PT 1\.[0-9]+\.[0-9]+') {
+    throw 'Installer user-facing strings must use ${APP_VERSION}, not a literal version'
+}
+if (-not $nsi.Contains('${APP_VERSION} requires the new unified audio configuration') -and
+    -not $nsi.Contains('${APP_VERSION} 需要新的统一音频配置')) {
+    throw 'Installer reset page must interpolate ${APP_VERSION}'
+}
+
+$agents = [IO.File]::ReadAllText("$repo/AGENTS.md")
+if ($agents -notmatch 'OBS_VERSION_OVERRIDE:STRING=1\.2\.0') {
+    throw 'Documented configure command must build version 1.2.0'
+}
+
+# The packaged DockState is the maintainer layout: stats + preview on top,
+# audio routing / mixer / scenes+sources / controls below. It must decode and
+# carry those docks, and no longer be a hand-authored placeholder.
+$packagedDefaultIni = "$repo/UI/data/obspt-defaults/obs-studio/global.ini"
+$defaultsIni = [IO.File]::ReadAllText($packagedDefaultIni)
+$dockMatch = [regex]::Match($defaultsIni, '(?m)^DockState=(.+)$')
+if (-not $dockMatch.Success) {
+    throw 'Packaged defaults have no [BasicWindow] DockState'
+}
+$dockBytes = [Convert]::FromBase64String($dockMatch.Groups[1].Value.Trim())
+# Qt stores dock names as UTF-16 at arbitrary offsets in the blob, and byte
+# order can shift between Qt builds; compare hex so neither alignment nor
+# endianness can produce a false failure.
+$dockHex = ($dockBytes | ForEach-Object { $_.ToString('x2') }) -join ''
+foreach ($dock in @('statsDoc', 'audioRoutingDoc', 'mixerDoc', 'scenesDock',
+                    'sourcesDoc', 'controlsDoc', 'transitionsDock')) {
+    $le = -join ($dock.ToCharArray() | ForEach-Object {
+        '{0:x2}00' -f [int][char]$_ })
+    $be = -join ($dock.ToCharArray() | ForEach-Object {
+        '00{0:x2}' -f [int][char]$_ })
+    if (-not $dockHex.Contains($le) -and -not $dockHex.Contains($be)) {
+        throw "Packaged default DockState is missing dock: $dock"
+    }
+}
+# A shipped default must also carry window geometry so the regions land at
+# their intended sizes on first run.
+if (-not [regex]::IsMatch($defaultsIni, '(?m)^geometry=.+$')) {
+    throw 'Packaged defaults have no window geometry'
+}
+
+# Issue 064 / ADR-0006: Setup never terminates or blocks on user
+# applications. The virtual camera filter DLLs can be mapped inside a
+# browser for its whole lifetime; the payload copy runs with
+# `SetOverwrite try` so such a file is skipped silently instead of raising
+# NSIS's overwrite dialog, and an in-use probe only records what was kept.
+$nsi = [IO.File]::ReadAllText("$repo/UI/installer/obspt-setup.nsi")
+foreach ($pattern in @('SetOverwrite try', 'Function ReportLockedVirtualCam',
+                      'Call ReportLockedVirtualCam')) {
+    if (-not $nsi.Contains($pattern)) {
+        throw "Locked-file skip contract is missing: $pattern"
+    }
+}
+foreach ($forbidden in @('taskkill', 'Stop-Process', 'terminate-vcam',
+                        'TerminateVirtualCamHolders', 'SetErrorLevel 2',
+                        'CheckVirtualCamInUse')) {
+    if ($nsi.Contains($forbidden)) {
+        throw "Setup must not terminate or block on user applications: $forbidden"
+    }
+}
+$vcamProbe = [regex]::Match($nsi, '(?s)Function ReportLockedVirtualCam.*?FunctionEnd').Value
+if ($vcamProbe -match 'MessageBox') {
+    throw 'The in-use probe must report via the install log, never a prompt'
+}
+
+# Virtual-camera registration contract: both architectures are declared and
+# the two regsvr32 calls must be independent (`&`), never chained (`&&`) -
+# a chained command aborts the 64-bit registration whenever the 32-bit
+# module is absent, which silently ships an unregistered filter.
+$register = [regex]::Match($nsi,'(?s)Function RegisterVirtualCam.*?FunctionEnd').Value
+if ($register -notmatch 'obs-virtualcam-module32\.dll' -or
+    $register -notmatch 'obs-virtualcam-module64\.dll') {
+    throw 'RegisterVirtualCam must register both module architectures'
+}
+if ($register -match '&&') {
+    throw 'Registration must not chain regsvr32 calls with && (a missing module would skip the other)'
+}
+if ($nsi -notmatch 'obs-virtualcam-module32\.dll is missing from staging') {
+    throw 'Packaging must fail loudly when the 32-bit virtual-camera module is not staged'
 }
 
 foreach ($expected in $expectedSources) {
@@ -421,6 +529,272 @@ $recIdx = $bootstrap.IndexOf('"AdvOut", "RecEncoder"')
 $strIdx = $bootstrap.IndexOf('"AdvOut", "Encoder"')
 if ($recIdx -lt 0 -or $strIdx -lt 0 -or $strIdx -le $recIdx) {
     throw 'Bootstrap must write [AdvOut] Encoder right after RecEncoder'
+}
+
+# Issue 066: recording defaults to a hardware HEVC encoder; streaming stays
+# H.264 (HEVC push compatibility is a separate, codec-flagged path).
+if ($bootstrap -notmatch 'probe_record_encoder\(\)' -or
+    $bootstrap -notmatch 'probe_h264_record_encoder\(\)') {
+    throw 'Bootstrap must probe recording and streaming encoders separately'
+}
+# The streaming slot must be fed from the H.264 probe, not the recording one.
+$streamRegion = $bootstrap.Substring([Math]::Max(0, $strIdx - 600), 700)
+if ($streamRegion.IndexOf('probe_h264_record_encoder()') -lt 0 -or
+    $streamRegion.IndexOf('stream_enc.encoder_id') -lt 0) {
+    throw 'The streaming encoder must come from the H.264 probe'
+}
+if ($bootstrap -notmatch 'obspt_recording_hevc_preference') {
+    throw 'The recording HEVC preference list must drive the recording probe'
+}
+
+$modelCpp = [IO.File]::ReadAllText("$repo/UI/obspt-bootstrap-model.cpp")
+$modelHeader = [IO.File]::ReadAllText("$repo/UI/obspt-bootstrap-model.h")
+$bootstrapHeader = [IO.File]::ReadAllText("$repo/UI/obspt-bootstrap.h")
+if ($modelHeader -notmatch 'OBSPT_BOOTSTRAP_VERSION 6') {
+    throw 'The keyint/streaming default change is a v6 repair'
+}
+# Exactly one definition: a second copy silently drifts and makes a repair
+# that claims to have bumped the version never run.
+if ($bootstrapHeader -match '#define\s+OBSPT_BOOTSTRAP_VERSION') {
+    throw 'OBSPT_BOOTSTRAP_VERSION must be defined once (bootstrap-model.h), not duplicated'
+}
+if ($modelCpp -match '#define\s+OBSPT_BOOTSTRAP_VERSION') {
+    throw 'OBSPT_BOOTSTRAP_VERSION must be defined in the header, not the .cpp'
+}
+foreach ($id in @('jim_hevc_nvenc', 'h265_texture_amf')) {
+    if ($modelCpp -notmatch [regex]::Escape($id)) {
+        throw "Recording HEVC preference is missing encoder: $id"
+    }
+}
+
+# Issue 073: recording keyframe interval is 0 (encoder-chosen) in every
+# encoder template, and streaming is CBR at a fixed target bitrate.
+$bootstrapSrc = [IO.File]::ReadAllText("$repo/UI/obspt-bootstrap.cpp")
+if ($bootstrapSrc -match 'obs_data_set_int\(root, "keyint_sec", 2\)') {
+    throw 'A recording template still hardcodes keyint_sec 2'
+}
+if ($bootstrapSrc -notmatch 'obspt_recording_keyint_sec\(\)') {
+    throw 'Recording templates must take the keyframe interval from the model'
+}
+if ($bootstrapSrc -notmatch 'obspt_streaming_bitrate_kbps\(\)') {
+    throw 'The streaming seed must take its bitrate from the model'
+}
+if ($bootstrapSrc -notmatch 'apply_stream_encoder_to_profile') {
+    throw 'Bootstrap must write streamEncoder.json under the repair gate'
+}
+if ($modelCpp -notmatch 'obspt_recording_keyint_sec[\s\S]{0,80}return 0;') {
+    throw 'obspt_recording_keyint_sec must return 0'
+}
+if ($modelCpp -notmatch 'obspt_streaming_bitrate_kbps[\s\S]{0,80}return 4500;') {
+    throw 'obspt_streaming_bitrate_kbps must return 4500'
+}
+
+# Java Detection ships lenient, as a preset default (never overwrites a
+# user's explicit 严格).
+$obsApp = [IO.File]::ReadAllText("$repo/UI/obs-app.cpp")
+if ($obsApp -notmatch 'config_set_default_bool\(globalConfig, "General",\s*"JavaDetectionLenient",\s*true\)') {
+    throw 'Java Detection must default to lenient via a preset default'
+}
+if ($obsApp -match 'config_set_bool\([^;]*"JavaDetectionLenient"') {
+    throw 'Java Detection must never be force-written over a user value'
+}
+
+# The shipped seed must agree with the bootstrap template, or fresh installs
+# and repaired installs would disagree.
+$packagedRecordEncoder = Get-Content -Raw `
+    "$repo/UI/data/obspt-defaults/obs-studio/basic/profiles/PotPvP/recordEncoder.json" |
+    ConvertFrom-Json
+if ($packagedRecordEncoder.encoder -ne 'jim_hevc_nvenc') {
+    throw 'Packaged recordEncoder.json must seed the HEVC recording encoder'
+}
+if ($packagedRecordEncoder.profile -ne 'main') {
+    throw 'HEVC recording seed must use the main profile'
+}
+if ($packagedProfile -notmatch '(?m)^RecEncoder=jim_hevc_nvenc$') {
+    throw 'Packaged profile must select the HEVC recording encoder'
+}
+if ($packagedProfile -match '(?m)^Encoder=') {
+    throw 'Packaged profile must not pin a streaming encoder'
+}
+if ($packagedRecordEncoder.keyint_sec -ne 0) {
+    throw 'Packaged recordEncoder.json must seed keyint_sec 0'
+}
+
+# The shipped streaming seed must be CBR at the model's target bitrate.
+$packagedStreamEncoder = Get-Content -Raw `
+    "$repo/UI/data/obspt-defaults/obs-studio/basic/profiles/PotPvP/streamEncoder.json" |
+    ConvertFrom-Json
+if ($packagedStreamEncoder.rate_control -ne 'CBR') {
+    throw 'Packaged streamEncoder.json must seed CBR'
+}
+if ($packagedStreamEncoder.bitrate -ne 4500) {
+    throw 'Packaged streamEncoder.json must seed 4500 Kbps'
+}
+
+# The shipped global.ini must carry the lenient Java Detection default so a
+# fresh portable tree matches the compiled-in default.
+$packagedGlobal = [IO.File]::ReadAllText(
+    "$repo/UI/data/obspt-defaults/obs-studio/global.ini")
+if ($packagedGlobal -notmatch '(?m)^JavaDetectionLenient=true\r?$') {
+    throw 'Packaged global.ini must seed lenient Java Detection'
+}
+
+# --- Issue 075 / ADR 0009: installer-driven default replacement ---
+
+# The marker axis must be its own constant, defined exactly once, and must
+# not be BootstrapVersion (whose repair cargo forces PotPvP and FirstRun).
+if ($modelHeader -notmatch 'OBSPT_INSTALLER_MIGRATION_VERSION 1') {
+    throw 'The installer-driven replacement must declare its own version constant'
+}
+if ($bootstrapHeader -match '#define\s+OBSPT_INSTALLER_MIGRATION_VERSION' -or
+    $modelCpp -match '#define\s+OBSPT_INSTALLER_MIGRATION_VERSION') {
+    throw 'OBSPT_INSTALLER_MIGRATION_VERSION must be defined once, in the model header'
+}
+if ($modelCpp -notmatch 'obspt_installer_migration_needed') {
+    throw 'The installer-migration decision must live in the testable model'
+}
+
+# Application side: the replacement runs under its own flag, replaces the
+# dock layout from the packaged defaults, and leaves BootstrapVersion alone.
+if ($bootstrapSrc -notmatch 'g_installer_migration_needed') {
+    throw 'The bootstrap must track the installer migration flag'
+}
+if ($bootstrapSrc -notmatch 'apply_packaged_default_layout') {
+    throw 'The migration must replace the dock layout from the packaged defaults'
+}
+if ($bootstrapSrc -notmatch 'GetDataFilePath\("obspt-defaults/obs-studio/global\.ini"') {
+    throw 'The migration must read the packaged default layout, not a hardcoded blob'
+}
+# DockState only - the user's window size is theirs.
+$layoutRegion = $bootstrapSrc.Substring(
+    [Math]::Max(0, $bootstrapSrc.IndexOf('apply_packaged_default_layout')))
+if ($layoutRegion -notmatch '"BasicWindow", "DockState"') {
+    throw 'The layout replacement must target [BasicWindow] DockState'
+}
+if ($layoutRegion -match '"BasicWindow", "geometry"') {
+    throw 'The layout replacement must not touch [BasicWindow] geometry'
+}
+# The migration must never write BootstrapVersion - that axis drags in the
+# v5 collateral (forcing PotPvP and FirstRun).
+$migrationIdx = $bootstrapSrc.IndexOf('g_installer_migration_needed) {')
+$migrationEnd = $bootstrapSrc.IndexOf('g_late_bootstrap_needed = false;', $migrationIdx)
+if ($migrationIdx -lt 0 -or $migrationEnd -lt 0) {
+    throw 'Could not isolate the installer-migration block'
+}
+$migrationBlock = $bootstrapSrc.Substring($migrationIdx, $migrationEnd - $migrationIdx)
+if ($migrationBlock -match 'BootstrapVersion') {
+    throw 'The installer migration must not write BootstrapVersion'
+}
+if ($migrationBlock -match '"Basic",\s*"Profile') {
+    throw 'The installer migration must not switch the active Profile'
+}
+if ($migrationBlock -notmatch 'config_set_bool\(global_config, "General",\s*"JavaDetectionLenient", true\)') {
+    throw 'The migration must force lenient Java Detection'
+}
+if ($migrationBlock -notmatch 'InstallerMigrationVersion') {
+    throw 'The migration must record its own completion marker'
+}
+
+# Installer side: the trigger reads the previously installed product version
+# and delegates the ini edit to the helper.
+foreach ($pattern in @(
+        '!include "WordFunc.nsh"',
+        '!insertmacro VersionCompare',
+        'Function MarkInstallerMigration',
+        'Call MarkInstallerMigration',
+        'ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "DisplayVersion"',
+        '${VersionCompare} $0 "${APP_VERSION}" $1',
+        'obspt-mark-installer-migration.ps1',
+        'InstallerMigrationVersion',
+        '${MIGRATION_PENDING}',
+        '${MIGRATION_DONE}')) {
+    if (-not $nsi.Contains($pattern)) {
+        throw "Installer migration contract is missing: $pattern"
+    }
+}
+# The marker must be decided before DisplayVersion is overwritten.
+$markCall = $nsi.IndexOf('Call MarkInstallerMigration')
+$regWrite = $nsi.IndexOf('WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion"')
+if ($markCall -lt 0 -or $regWrite -lt 0 -or $regWrite -lt $markCall) {
+    throw 'The migration marker must be decided before DisplayVersion is rewritten'
+}
+# The installer must never write BootstrapVersion.
+if ($nsi -match 'WriteINIStr[^\n]*BootstrapVersion' -or
+    $nsi -match 'BootstrapVersion[^\n]*InstallerMigrationVersion') {
+    throw 'The installer must not write BootstrapVersion'
+}
+# Silent by contract: no prompt, and never fatal.
+$markFnStart = $nsi.IndexOf('Function MarkInstallerMigration')
+$markFnEnd = $nsi.IndexOf('FunctionEnd', $markFnStart)
+$markFn = $nsi.Substring($markFnStart, $markFnEnd - $markFnStart)
+if ($markFn -match 'MessageBox') {
+    throw 'The installer migration must not prompt'
+}
+if ($markFn -match 'Abort') {
+    throw 'The installer migration must never abort the installation'
+}
+
+# The helper must exist and preserve the rest of the file.
+$markHelper = "$repo/UI/installer/obspt-mark-installer-migration.ps1"
+if (-not (Test-Path -LiteralPath $markHelper)) {
+    throw 'The installer migration helper is missing'
+}
+$markSrc = [IO.File]::ReadAllText($markHelper)
+foreach ($pattern in @('InstallerMigrationVersion', 'ValidateSet', 'exit 0')) {
+    if ($markSrc -notmatch [regex]::Escape($pattern)) {
+        throw "Installer migration helper is missing: $pattern"
+    }
+}
+
+# Behavioural: a marker write inserts exactly one line and changes nothing
+# else, keeping the UTF-8 BOM and the file's own line ending.
+$markFixture = Join-Path $work 'marker'
+New-Item -ItemType Directory -Force -Path $markFixture | Out-Null
+foreach ($flavour in @('crlf', 'lf')) {
+    $src = "$repo/UI/data/obspt-defaults/obs-studio/global.ini"
+    $text = [IO.File]::ReadAllText($src)
+    if ($flavour -eq 'lf') { $text = $text.Replace("`r`n", "`n") }
+    $fixture = Join-Path $markFixture "$flavour.ini"
+    [IO.File]::WriteAllText($fixture, $text, (New-Object System.Text.UTF8Encoding $true))
+    $before = [IO.File]::ReadAllText($fixture)
+    & $markHelper -IniPath $fixture -Value 0 | Out-Null
+    $after = [IO.File]::ReadAllText($fixture)
+
+    # Line-ending blind: a CRLF file leaves a trailing CR on every split
+    # element, which must not decide whether the marker is present.
+    $added = @($after -split "`n" | Where-Object {
+            $_.TrimEnd("`r") -match '^InstallerMigrationVersion=' })
+    if ($added.Count -ne 1 -or $added[0].TrimEnd("`r") -ne 'InstallerMigrationVersion=0') {
+        throw "The marker helper must add exactly one marker line ($flavour)"
+    }
+    $stripped = @($after -split "`n" | Where-Object {
+            $_.TrimEnd("`r") -notmatch '^InstallerMigrationVersion=' })
+    $expected = @($before -split "`n")
+    if (@(Compare-Object $stripped $expected -SyncWindow 0).Count -ne 0) {
+        throw "The marker helper must change nothing but the marker ($flavour)"
+    }
+    $bytes = [IO.File]::ReadAllBytes($fixture)
+    if (-not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) {
+        throw "The marker helper must preserve the UTF-8 BOM ($flavour)"
+    }
+    $crlfAfter = ([regex]::Matches($after, "`r`n")).Count
+    if ($flavour -eq 'crlf' -and $crlfAfter -ne 55) {
+        throw 'The marker helper must keep CRLF endings'
+    }
+    if ($flavour -eq 'lf' -and $crlfAfter -ne 0) {
+        throw 'The marker helper must keep LF endings'
+    }
+    if (-not $after.EndsWith("`n")) {
+        throw "The marker helper must keep a trailing newline ($flavour)"
+    }
+    if ($after -notmatch 'InstallerMigrationVersion=0\r?\n') {
+        throw "The marker line must be newline-terminated ($flavour)"
+    }
+}
+# A missing file must be a silent no-op, never a failure.
+& $markHelper -IniPath (Join-Path $markFixture 'absent.ini') -Value 1
+if (-not $?) {
+    throw 'The marker helper must tolerate a missing configuration file'
 }
 
 }
@@ -536,6 +910,20 @@ if ($mainCpp -match 'bin/64bit|bin/32bit') {
 }
 if ($mainCpp -notmatch [regex]::Escape('path + "/bin"')) {
     throw 'Main window must add module path /bin'
+}
+
+# Build-output contract must describe what the pipeline actually does: the
+# installer lands in .target/installer/ (NSIS OutFile), the tree is flat, and
+# the packaging guard for the Win32 virtual-camera module is documented.
+$contract = [IO.File]::ReadAllText("$repo/.docs/spec/build-output.md")
+if ($contract -notmatch [regex]::Escape('.target/installer/OBS-PT-<version>-Installer.exe')) {
+    throw 'Build-output contract must name the real installer output path'
+}
+if ($contract -notmatch [regex]::Escape('_vcam32')) {
+    throw 'Build-output contract must document the Win32 virtual-camera lane'
+}
+if ($contract -match 'runnable form is\s+`\.target/_pkg/OBS-PT/bin/64bit') {
+    throw 'Build-output contract still claims the removed bin/64bit layout'
 }
 
 # Issue 048: default-setting policy audit. RunAsAdministrator is the sole

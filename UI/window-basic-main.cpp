@@ -448,23 +448,21 @@ OBSBasic::OBSBasic(QWidget *parent)
 		QByteArray byteArray =
 			QByteArray::fromBase64(QByteArray(geometry));
 		restoreGeometry(byteArray);
-
-		QRect windowGeometry = normalGeometry();
-		if (!WindowPositionValid(windowGeometry)) {
-			QRect rect =
-				QGuiApplication::primaryScreen()->geometry();
-			setGeometry(QStyle::alignedRect(Qt::LeftToRight,
-							Qt::AlignCenter, size(),
-							rect));
-		}
-
-		curPos = pos();
-	} else {
-		QRect desktopRect =
-			QGuiApplication::primaryScreen()->geometry();
-		QSize adjSize = desktopRect.size() / 2 - size() / 2;
-		curPos = QPoint(adjSize.width(), adjSize.height());
 	}
+
+	/* Issue 066: the main window always opens centered, so a window saved
+	 * on another display (or moved off-centre by hand) never reappears
+	 * half off-screen. Size is still the user's; only the position is
+	 * forced. availableGeometry keeps it clear of the taskbar. */
+	{
+		QRect desktopRect = QGuiApplication::primaryScreen()
+					    ->availableGeometry();
+		setGeometry(QStyle::alignedRect(Qt::LeftToRight,
+						Qt::AlignCenter, size(),
+						desktopRect));
+	}
+
+	curPos = pos();
 
 	QPoint curSize(width(), height());
 
@@ -7643,6 +7641,45 @@ void OBSBasic::StartStreaming()
 				QMetaObject::invokeMethod(this,
 							  "SetupBroadcast");
 			return;
+		}
+	}
+
+	/* issue 058: pre-flight codec/service check — a stream whose codec
+	 * isn't on the service's supported list will fail or fall silent;
+	 * tell the user before opening the connection. */
+	{
+		obs_service_t *service = GetService();
+		const char *mode = config_get_string(Config(), "Output", "Mode");
+		bool advanced = astrcmpi(mode, "Advanced") == 0;
+		const char *enc = nullptr;
+		if (advanced)
+			enc = config_get_string(Config(), "AdvOut", "Encoder");
+		else
+			enc = config_get_string(Config(), "SimpleOutput",
+						"StreamEncoder");
+		const char *codec = enc && *enc ? obs_get_encoder_codec(enc) : nullptr;
+		if (codec) {
+			const char **supported =
+				obs_service_get_supported_video_codecs(service);
+			if (supported) {
+				bool ok = false;
+				for (size_t i = 0; supported[i]; i++) {
+					if (strcmp(supported[i], codec) == 0) {
+						ok = true;
+						break;
+					}
+				}
+				if (!ok) {
+					QMessageBox msgbox(this);
+					msgbox.setIcon(QMessageBox::Warning);
+					msgbox.setWindowTitle(
+						QTStr("Output.StartStreamFailed"));
+					msgbox.setText(QTStr(
+						"Output.StartFailedUnsupportedCodec"));
+					msgbox.exec();
+					return;
+				}
+			}
 		}
 	}
 

@@ -235,6 +235,7 @@ set(obs_SOURCES
 	../deps/json11/json11.cpp
 	obs-app.cpp
 	obspt-bootstrap.cpp
+	obspt-bootstrap-model.cpp
 	obspt-elevated-launch-model.cpp
 	window-dock.cpp
 	api-interface.cpp
@@ -551,6 +552,12 @@ if(WIN32 AND BUILD_TESTS)
 		obspt-elevated-launch-model-test.cpp
 		obspt-elevated-launch-model.cpp)
 	set_target_properties(obspt-elevated-launch-model-test PROPERTIES
+		FOLDER "tests and examples")
+
+	add_executable(obspt-bootstrap-model-test
+		obspt-bootstrap-model-test.cpp
+		obspt-bootstrap-model.cpp)
+	set_target_properties(obspt-bootstrap-model-test PROPERTIES
 		FOLDER "tests and examples")
 endif()
 

@@ -424,6 +424,12 @@ bool OBSApp::InitGlobalConfigDefaults()
 				true);
 	config_set_default_bool(globalConfig, "General", "EnableAutoUpdates",
 				true);
+	/* Issue 073: Java Detection ships lenient - PotPvP launches are often
+	 * java.exe rather than the launcher's javaw.exe, and strict matching
+	 * silently captures nothing. Preset semantics (never overwrites a
+	 * user's manually chosen 严格). */
+	config_set_default_bool(globalConfig, "General", "JavaDetectionLenient",
+				true);
 
 	config_set_default_bool(globalConfig, "General", "ConfirmOnExit", true);
 
@@ -1159,9 +1165,12 @@ bool OBSApp::InitTheme()
 	if (!themeName)
 		themeName = "Dark";
 
-	/* Issue 053: Acri is hidden from the picker; an existing Acri selection
-	 * must fall back to Dark and be persisted so the theme stays removed. */
-	if (themeName && strcmp(themeName, "Acri") == 0) {
+	/* Issue 053: legacy themes (Acri, Rachni, System) are hidden from the
+	 * picker; an existing selection falls back to Dark and is persisted so
+	 * the theme stays removed. */
+	if (themeName && (strcmp(themeName, "Acri") == 0 ||
+			  strcmp(themeName, "Rachni") == 0 ||
+			  strcmp(themeName, "System") == 0)) {
 		themeName = "Dark";
 		config_set_string(globalConfig, "General", "CurrentTheme2", "Dark");
 	}

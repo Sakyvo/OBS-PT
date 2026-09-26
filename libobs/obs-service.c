@@ -467,3 +467,62 @@ void obs_service_get_max_bitrate(const obs_service_t *service,
 		service->info.get_max_bitrate(service->context.data,
 					      video_bitrate, audio_bitrate);
 }
+
+const char **obs_service_get_supported_video_codecs(const obs_service_t *service)
+{
+	if (!obs_service_valid(service, "obs_service_get_supported_video_codecs"))
+		return NULL;
+
+	if (service->info.get_supported_video_codecs)
+		return service->info.get_supported_video_codecs(
+			service->context.data);
+
+	return NULL;
+}
+
+const char **obs_service_get_supported_audio_codecs(const obs_service_t *service)
+{
+	if (!obs_service_valid(service, "obs_service_get_supported_audio_codecs"))
+		return NULL;
+
+	if (service->info.get_supported_audio_codecs)
+		return service->info.get_supported_audio_codecs(
+			service->context.data);
+
+	return NULL;
+}
+
+const char *obs_service_get_protocol(const obs_service_t *service)
+{
+	if (!obs_service_valid(service, "obs_service_get_protocol"))
+		return NULL;
+
+	if (service->info.get_protocol)
+		return service->info.get_protocol(service->context.data);
+
+	return NULL;
+}
+
+const char *obs_service_get_connect_info(const obs_service_t *service,
+					 uint32_t type)
+{
+	if (!obs_service_valid(service, "obs_service_get_connect_info"))
+		return NULL;
+
+	if (service->info.get_connect_info)
+		return service->info.get_connect_info(service->context.data,
+						      type);
+
+	return NULL;
+}
+
+bool obs_service_can_try_to_connect(const obs_service_t *service)
+{
+	if (!obs_service_valid(service, "obs_service_can_try_to_connect"))
+		return false;
+
+	if (service->info.can_try_to_connect)
+		return service->info.can_try_to_connect(service->context.data);
+
+	return false;
+}

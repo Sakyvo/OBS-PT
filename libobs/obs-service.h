@@ -33,6 +33,18 @@ struct obs_service_resolution {
 	int cy;
 };
 
+/* NOTE: Odd numbers are reserved for custom info from third-party protocols */
+enum obs_service_connect_info {
+	OBS_SERVICE_CONNECT_INFO_SERVER_URL = 0,
+	OBS_SERVICE_CONNECT_INFO_STREAM_ID = 2,
+	OBS_SERVICE_CONNECT_INFO_STREAM_KEY =
+		2, // Alias of OBS_SERVICE_CONNECT_INFO_STREAM_ID
+	OBS_SERVICE_CONNECT_INFO_USERNAME = 4,
+	OBS_SERVICE_CONNECT_INFO_PASSWORD = 6,
+	OBS_SERVICE_CONNECT_INFO_ENCRYPT_PASSPHRASE = 8,
+	OBS_SERVICE_CONNECT_INFO_BEARER_TOKEN = 10,
+};
+
 struct obs_service_info {
 	/* required */
 	const char *id;
@@ -86,10 +98,34 @@ struct obs_service_info {
 
 	void (*get_max_bitrate)(void *data, int *video_bitrate,
 				int *audio_bitrate);
+
+	const char **(*get_supported_video_codecs)(void *data);
+
+	const char *(*get_protocol)(void *data);
+
+	const char **(*get_supported_audio_codecs)(void *data);
+
+	const char *(*get_connect_info)(void *data, uint32_t type);
+
+	bool (*can_try_to_connect)(void *data);
 };
 
 EXPORT void obs_register_service_s(const struct obs_service_info *info,
 				   size_t size);
+
+EXPORT const char **
+obs_service_get_supported_video_codecs(const obs_service_t *service);
+
+EXPORT const char **
+obs_service_get_supported_audio_codecs(const obs_service_t *service);
+
+/** Returns the protocol for this service context. */
+EXPORT const char *obs_service_get_protocol(const obs_service_t *service);
+
+EXPORT const char *obs_service_get_connect_info(const obs_service_t *service,
+						uint32_t type);
+
+EXPORT bool obs_service_can_try_to_connect(const obs_service_t *service);
 
 #define obs_register_service(info) \
 	obs_register_service_s(info, sizeof(struct obs_service_info))

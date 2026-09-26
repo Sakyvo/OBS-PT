@@ -158,6 +158,9 @@ set(obs-outputs_HEADERS
 	obs-output-ver.h
 	rtmp-helpers.h
 	rtmp-stream.h
+	rtmp-hevc.h
+	rtmp-av1.h
+	utils.h
 	net-if.h
 	flv-mux.h
 	mp4-mux-internal.h
@@ -167,6 +170,8 @@ set(obs-outputs_SOURCES
 	null-output.c
 	rtmp-stream.c
 	rtmp-windows.c
+	rtmp-hevc.c
+	rtmp-av1.c
 	flv-output.c
 	flv-mux.c
 	mp4-output.c

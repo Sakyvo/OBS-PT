@@ -75,6 +75,9 @@ struct obs_output_info {
 
 	/* raw audio callback for multi track outputs */
 	void (*raw_audio2)(void *data, size_t idx, struct audio_data *frames);
+
+	/* required if OBS_OUTPUT_SERVICE */
+	const char *protocols;
 };
 
 EXPORT void obs_register_output_s(const struct obs_output_info *info,
@@ -82,6 +85,18 @@ EXPORT void obs_register_output_s(const struct obs_output_info *info,
 
 #define obs_register_output(info) \
 	obs_register_output_s(info, sizeof(struct obs_output_info))
+
+/* ------------------------------------------------------------------------- */
+/* Query helpers */
+
+EXPORT const char *
+obs_output_get_supported_video_codecs(const obs_output_t *output);
+EXPORT const char *
+obs_output_get_supported_audio_codecs(const obs_output_t *output);
+EXPORT const char *obs_output_get_protocols(const obs_output_t *output);
+EXPORT void obs_enum_output_types_with_protocol(
+	const char *protocol, void *data,
+	bool (*enum_cb)(void *data, const char *id));
 
 #ifdef __cplusplus
 }

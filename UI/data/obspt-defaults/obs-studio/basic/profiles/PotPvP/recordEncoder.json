@@ -1,1 +1,1 @@
-{"bf":0,"cqp":27,"encoder":"jim_nvenc","multipass":"disabled","preset2":"p1","profile":"high","psycho_aq":false,"rate_control":"CQP","tune":"hq"}
+{"encoder":"jim_hevc_nvenc","rate_control":"CQP","cqp":27,"preset2":"p1","tune":"hq","multipass":"disabled","profile":"main","keyint_sec":0,"bf":0}

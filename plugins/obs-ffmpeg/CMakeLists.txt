@@ -11,6 +11,12 @@ find_package(FFmpeg REQUIRED
 	COMPONENTS avcodec avfilter avdevice avutil swscale avformat swresample)
 include_directories(${FFMPEG_INCLUDE_DIRS})
 
+if(WIN32)
+	# AMF SDK headers live in the vendored deps tree (AMF < 1.4.30 lacked
+	# VideoEncoderAV1.h; OBS-PT carries the 1.4.30 header set)
+	include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/deps2019/win64/include")
+endif()
+
 if(UNIX AND NOT APPLE)
         find_package(Libpci REQUIRED)
         include_directories(${LIBPCI_INCLUDE_DIRS})
@@ -58,16 +64,25 @@ if(WIN32)
 	list(APPEND obs-ffmpeg_SOURCES
 		jim-nvenc.c
 		jim-nvenc-helpers.c
+		obspt-nvenc-model.c
+		obspt-amf-model.c
+		texture-amf.cpp
 		obs-ffmpeg.rc)
 	list(APPEND obs-ffmpeg_HEADERS
 		jim-nvenc.h
-		jim-nvenc-ver.h)
+		jim-nvenc-ver.h
+		obspt-nvenc-model.h
+		obspt-amf-model.h
+		texture-amf-opts.hpp)
 endif()
 
 add_library(obs-ffmpeg MODULE
 	${obs-ffmpeg_config_HEADERS}
 	${obs-ffmpeg_HEADERS}
 	${obs-ffmpeg_SOURCES})
+if(WIN32)
+	target_compile_definitions(obs-ffmpeg PRIVATE ENABLE_HEVC)
+endif()
 target_link_libraries(obs-ffmpeg
 	libobs
 	opts-parser
@@ -79,3 +94,8 @@ set_target_properties(obs-ffmpeg PROPERTIES FOLDER "plugins/obs-ffmpeg")
 install_obs_plugin_with_data(obs-ffmpeg data)
 
 add_subdirectory(ffmpeg-mux)
+
+if(WIN32)
+	add_subdirectory(obs-nvenc-test)
+	add_subdirectory(obs-amf-test)
+endif()

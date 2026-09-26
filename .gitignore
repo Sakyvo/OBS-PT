@@ -118,3 +118,11 @@ tags
 /repo/
 /CI/flatpak/flatpak-github-action-modified-*
 .ace-tool/
+
+# internal development docs (not published to the public repository)
+/.docs/
+/AGENTS.md
+/CLAUDE.md
+/CONTEXT.md
+/vlc-help.txt
+/plugins/obs-outputs/rtmp-stream.c.upstream

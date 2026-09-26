@@ -364,6 +364,7 @@ OBSBasicSettings::OBSBasicSettings(QWidget *parent)
 	string path;
 
 	EnableThreadedMessageBoxes(true);
+	qApp->installEventFilter(this);
 
 	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
@@ -941,12 +942,40 @@ OBSBasicSettings::OBSBasicSettings(QWidget *parent)
 
 OBSBasicSettings::~OBSBasicSettings()
 {
+	qApp->removeEventFilter(this);
 	delete ui->filenameFormatting->completer();
 	main->EnableOutputs(true);
 
 	App()->UpdateHotkeyFocusSetting();
 
 	EnableThreadedMessageBoxes(false);
+}
+
+/* Issue 053: hidden-theme backdoor. While the Advanced page is current
+ * and this dialog is active, accumulate lowercase keystrokes; typing
+ * 'debug' reveals the hidden themes in the General theme combo for the
+ * lifetime of this dialog. Non-letter keys clear the buffer. */
+bool OBSBasicSettings::eventFilter(QObject *obj, QEvent *event)
+{
+	if (event->type() == QEvent::KeyPress && isActiveWindow() &&
+	    !revealHiddenThemes &&
+	    ui->settingsPages->currentWidget() == ui->advancedPage) {
+		QKeyEvent *ke = static_cast<QKeyEvent *>(event);
+		QString text = ke->text();
+		if (text.length() == 1 && text[0] >= 'a' && text[0] <= 'z') {
+			debugKeyBuffer += text;
+			if (debugKeyBuffer.length() > 5)
+				debugKeyBuffer = debugKeyBuffer.right(5);
+		} else {
+			debugKeyBuffer.clear();
+		}
+		if (debugKeyBuffer == "debug") {
+			revealHiddenThemes = true;
+			debugKeyBuffer.clear();
+			LoadThemeList();
+		}
+	}
+	return QDialog::eventFilter(obj, event);
 }
 
 void OBSBasicSettings::SaveCombo(QComboBox *widget, const char *section,
@@ -1015,7 +1044,8 @@ void OBSBasicSettings::LoadEncoderTypes()
 
 		const char *streaming_codecs[] = {
 			"h264",
-			//"hevc",
+			"hevc",
+			"av1",
 		};
 		bool is_streaming_codec = false;
 		for (const char *test_codec : streaming_codecs) {
@@ -1223,9 +1253,21 @@ void OBSBasicSettings::LoadThemeList()
 		if (name == DEFAULT_THEME)
 			name = defaultTheme;
 
-		/* Issue 053: hide Acri from the theme picker. */
-		if (name == "Acri")
-			continue;
+		/* Issue 053: hide legacy themes (Acri, Rachni, System) from
+		 * the theme picker; the Advanced-page 'debug' key sequence
+		 * reveals them for the lifetime of this dialog only. */
+		static const char *const hiddenThemes[] = {"Acri", "Rachni",
+							   "System"};
+		if (!revealHiddenThemes) {
+			bool hidden = false;
+			for (const char *h : hiddenThemes)
+				if (name == h) {
+					hidden = true;
+					break;
+				}
+			if (hidden)
+				continue;
+		}
 
 		if (!uniqueSet.contains(name) && name != "Default")
 			ui->theme->addItem(name);
@@ -2526,7 +2568,10 @@ void OBSBasicSettings::LoadAdvancedSettings()
 		GetGlobalConfig(), "General", "RunAsAdministrator"));
 
 	{
-		// Issue 041 Java Detection (global): Strict by default.
+		// Issue 041 Java Detection (global): Lenient by default
+		// (issue 073), since PotPvP launches are often java.exe
+		// rather than the launcher's javaw.exe. The value is a
+		// preset default, so a user who chose 严格 keeps it.
 		const bool lenient = config_get_bool(
 			GetGlobalConfig(), "General", "JavaDetectionLenient");
 		ui->javaDetectionMode->setCurrentIndex(lenient ? 1 : 0);

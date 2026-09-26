@@ -107,11 +107,13 @@ if(WIN32)
 		util/pipe-windows.c
 		util/platform-windows.c
 		util/windows/obfuscate.c
+		util/windows/device-enum.c
 		util/windows/window-helpers.c
 		libobs.rc)
 	set(libobs_PLATFORM_HEADERS
 		util/threading-windows.h
 		util/windows/obfuscate.h
+		util/windows/device-enum.h
 		util/windows/win-registry.h
 		util/windows/win-version.h
 		util/windows/window-helpers.h
@@ -127,7 +129,7 @@ if(WIN32)
 	set(libobs_audio_monitoring_HEADERS
 		audio-monitoring/win32/wasapi-output.h
 		)
-	set(libobs_PLATFORM_DEPS Avrt Dwmapi winmm)
+	set(libobs_PLATFORM_DEPS Avrt Dwmapi dxgi dxguid winmm)
 	if(MSVC)
 		set(libobs_PLATFORM_DEPS
 		${libobs_PLATFORM_DEPS}
@@ -432,6 +434,9 @@ set(libobs_libobs_SOURCES
 	${libobs_PLATFORM_SOURCES}
 	obs-audio-controls.c
 	obs-avc.c
+	obs-hevc.c
+	obs-av1.c
+	obs-nal.c
 	obs-encoder.c
 	obs-service.c
 	obs-source.c
@@ -471,6 +476,9 @@ set(libobs_libobs_HEADERS
 	obs-audio-controls.h
 	obs-defs.h
 	obs-avc.h
+	obs-hevc.h
+	obs-av1.h
+	obs-nal.h
 	obs-encoder.h
 	obs-service.h
 	obs-internal.h

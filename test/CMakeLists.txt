@@ -4,6 +4,8 @@ if(BUILD_TESTS)
 
 	if(WIN32)
 		add_subdirectory(win)
+		add_subdirectory(obspt-encoder)
+		add_subdirectory(obspt-service-reload)
 	endif()
 
 	if(APPLE AND UNIX)

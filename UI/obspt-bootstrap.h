@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define OBSPT_BOOTSTRAP_VERSION 3
+#include "obspt-bootstrap-model.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,6 +32,10 @@ typedef struct {
    through to obs_x264. */
 encoder_probe_result_t probe_record_encoder(void);
 
+/* The H.264 probe. Recording falls back to it when no hardware HEVC encoder
+   is registered; streaming uses it directly (issue 066). */
+encoder_probe_result_t probe_h264_record_encoder(void);
+
 typedef struct {
 	int64_t (*get_current_time_sec)(void);
 	int (*list_files)(const char *dir, const char *glob, char ***out,
@@ -49,6 +53,7 @@ bool validate_obspt_preset_files(char *failed_path,
 void prepare_obspt_global_config(config_t *global_config);
 int apply_encoder_to_profile(const char *profile_name,
 			      const char *encoder_id, int cqp);
+int apply_stream_encoder_to_profile(const char *profile_name);
 void apply_record_path_to_config(config_t *cfg, const char *abs_path);
 int apply_record_path_to_profile(const char *profile_name,
 				  const char *abs_path);
