@@ -1,7 +1,7 @@
 # Launch the installer, capture its main window with PrintWindow, then close it.
 # AGENTS.md requires a real launch to the Setup main window after packaging.
 param(
-    [string]$Installer = 'K:/Projects/dev/OBS-PT/.target/installer/OBS-PT-1.2.0-Installer.exe',
+    [string]$Installer = 'K:/Projects/dev/OBS-PT/.target/.distribution/installer/OBS-PT-1.3.0-Installer.exe',
     [string]$Out = 'K:/Projects/dev/OBS-PT/.target/_tools/setup-window.png',
     [int]$WaitSec = 20
 )

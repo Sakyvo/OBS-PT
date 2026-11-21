@@ -6,6 +6,7 @@ if(BUILD_TESTS)
 		add_subdirectory(win)
 		add_subdirectory(obspt-encoder)
 		add_subdirectory(obspt-service-reload)
+		add_subdirectory(obspt-client-capture)
 	endif()
 
 	if(APPLE AND UNIX)

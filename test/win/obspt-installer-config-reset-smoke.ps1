@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$WorkRoot =
         'K:/Projects/dev/OBS-PT/.target/_tdd/installer-config-reset'
 )
@@ -387,8 +387,8 @@ if (-not $nsi.Contains('${APP_VERSION} requires the new unified audio configurat
 }
 
 $agents = [IO.File]::ReadAllText("$repo/AGENTS.md")
-if ($agents -notmatch 'OBS_VERSION_OVERRIDE:STRING=1\.2\.0') {
-    throw 'Documented configure command must build version 1.2.0'
+if ($agents -notmatch 'OBS_VERSION_OVERRIDE:STRING=1\.3\.0') {
+    throw 'Documented configure command must build version 1.3.0'
 }
 
 # The packaged DockState is the maintainer layout: stats + preview on top,
@@ -703,7 +703,8 @@ foreach ($pattern in @(
         'Function MarkInstallerMigration',
         'Call MarkInstallerMigration',
         'ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "DisplayVersion"',
-        '${VersionCompare} $0 "${APP_VERSION}" $1',
+        '!define MIGRATION_RELEASE "1.2.0"',
+        '${VersionCompare} $0 "${MIGRATION_RELEASE}" $1',
         'obspt-mark-installer-migration.ps1',
         'InstallerMigrationVersion',
         '${MIGRATION_PENDING}',
@@ -913,10 +914,10 @@ if ($mainCpp -notmatch [regex]::Escape('path + "/bin"')) {
 }
 
 # Build-output contract must describe what the pipeline actually does: the
-# installer lands in .target/installer/ (NSIS OutFile), the tree is flat, and
+# installer lands in .target/.distribution/installer/ (NSIS OutFile), the tree is flat, and
 # the packaging guard for the Win32 virtual-camera module is documented.
 $contract = [IO.File]::ReadAllText("$repo/.docs/spec/build-output.md")
-if ($contract -notmatch [regex]::Escape('.target/installer/OBS-PT-<version>-Installer.exe')) {
+if ($contract -notmatch [regex]::Escape('.target/.distribution/installer/OBS-PT-<version>-Installer.exe')) {
     throw 'Build-output contract must name the real installer output path'
 }
 if ($contract -notmatch [regex]::Escape('_vcam32')) {

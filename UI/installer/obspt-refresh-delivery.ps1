@@ -1,129 +1,130 @@
-# Refresh .target/app/ from the staging root and rewrite .target/delivery.json.
-# app-prev is never overwritten (it guards the last version a user accepted).
+# Refresh product files only; preserve portable user data and the accepted predecessor.
+param([string]$Version = '1.3.0')
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot/../..").Path
 $target = Join-Path $repo '.target'
-$staging = Join-Path $target '_pkg/OBS-PT'
-$app = Join-Path $target 'app'
-$installer = Join-Path $target 'installer'
-$version = '1.2.0'
-$installerExe = Join-Path $installer "OBS-PT-$version-Installer.exe"
-
-if (-not (Test-Path $staging)) { throw "staging missing: $staging" }
-if (-not (Test-Path $installerExe)) { throw "installer missing: $installerExe" }
-
-# 1. Mirror staging -> app (replace contents, keep the directory itself).
-Get-ChildItem -LiteralPath $app -Force | Remove-Item -Recurse -Force
-foreach ($dir in Get-ChildItem -LiteralPath $staging) {
-    Copy-Item -LiteralPath $dir.FullName -Destination $app -Recurse -Force
+$staging = [IO.Path]::GetFullPath((Join-Path $target '_pkg/OBS-PT'))
+$app = [IO.Path]::GetFullPath((Join-Path $target '.distribution/app'))
+$previous = [IO.Path]::GetFullPath((Join-Path $target '.distribution/app-prev'))
+$installerExe = Join-Path $target ".distribution/installer/OBS-PT-$Version-Installer.exe"
+$receipt = Join-Path $target 'delivery.json'
+$rollback = Join-Path $target 'Testing/delivery-refresh-rollback'
+$old = if (Test-Path $receipt) { Get-Content $receipt -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
+if (Test-Path $rollback) { throw "Unfinished delivery transaction: $rollback" }
+foreach ($file in @("$staging/bin/OBS-PT.exe", $installerExe)) {
+    if (-not (Test-Path $file)) { throw "Missing delivery input: $file" }
+    $v = (Get-Item $file).VersionInfo
+    if ("$($v.ProductMajorPart).$($v.ProductMinorPart).$($v.ProductBuildPart)" -ne $Version) { throw "Unexpected product version: $file" }
 }
+$cache = Get-Content "$target/CMakeCache.txt" -Raw
+if ($cache -notmatch 'BUILD_TESTS:BOOL=OFF' -or $cache -notmatch 'CMAKE_GENERATOR:INTERNAL=Visual Studio 17 2022' -or
+    $cache -notmatch "OBS_VERSION_OVERRIDE:STRING=$([regex]::Escape($Version))") { throw 'Release configuration mismatch' }
+$running = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($app + '\', [StringComparison]::OrdinalIgnoreCase) }
+if ($running) { throw 'Close the running OBS-PT before refreshing its delivery directory' }
+if ($old.app.status -eq 'accepted' -and (Test-Path $previous)) { throw 'An accepted predecessor already exists; inspect before refresh' }
 
-function Get-Manifest([string]$root) {
-    $items = Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object {
-        $rel = $_.FullName.Substring($repo.Length + 1).Replace('\', '/')
-        [pscustomobject]@{
-            path   = $rel
-            bytes  = $_.Length
-            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()
-        }
-    }
-    @($items | Sort-Object path)
+function Hash([string]$path) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+function Manifest([string]$root) {
+    @(Get-ChildItem $root -Recurse -File | Where-Object { $_.FullName -notlike "$root\obs-studio\*" -and $_.FullName -notlike "$root\recordings\*" } | ForEach-Object {
+        @{ path = $_.FullName.Substring($repo.Length + 1).Replace('\', '/'); bytes = $_.Length; sha256 = Hash $_.FullName }
+    } | Sort-Object { $_.path })
 }
-
-$appFiles = Get-Manifest $app
-$exe = Join-Path $app 'bin/OBS-PT.exe'
-$exeHash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLower()
-$exeBytes = (Get-Item -LiteralPath $exe).Length
-
-# Deterministic fingerprint of the declared build-input set: SHA-256 over the
-# sorted "<repo-relative path>\n<file sha256>\n" stream. Reproducible by rerunning
-# this script; the same set is declared in .docs/spec/build-output.md.
-function Get-InputFingerprint([string[]]$sets) {
-    $lines = New-Object System.Collections.Generic.List[string]
-    foreach ($set in $sets) {
-        $p = Join-Path $repo $set
-        if (Test-Path -LiteralPath $p -PathType Leaf) {
-            $rel = $set.Replace('\', '/')
-            $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLower()
-            $lines.Add("$rel`n$h")
-        } elseif (Test-Path -LiteralPath $p -PathType Container) {
-            foreach ($f in Get-ChildItem -LiteralPath $p -Recurse -File) {
-                $rel = $f.FullName.Substring($repo.Length + 1).Replace('\', '/')
-                $h = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLower()
-                $lines.Add("$rel`n$h")
-            }
-        }
-    }
-    $payload = (($lines | Sort-Object) -join "`n") + "`n"
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    $bytes = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($payload))
-    $sha.Dispose()
-    return ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
-}
-
-$inputSets = @('CMakeLists.txt', 'UI', 'libobs', 'plugins')
-$fingerprint = Get-InputFingerprint $inputSets
-
-$doc = [ordered]@{
-    schemaVersion = 1
-    project       = 'OBS-PT'
-    app           = [ordered]@{
-        status            = 'pending-manual-acceptance'
-        source            = [ordered]@{
-            kind   = 'input-fingerprint'
-            value  = $fingerprint
-            inputs = $inputSets
-        }
-        buildCommand      = 'cmake --build .target --config RelWithDebInfo --parallel (BUILD_TESTS=OFF) + cmake --install --prefix .target/_pkg/OBS-PT, mirrored into .target/app'
-        acceptanceCommand = 'test/win/obspt-installer-config-reset-smoke.ps1 (PASS) + manual GUI acceptance'
-        pendingSinceUtc   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-        pendingManualItems = @(
-            '主题后门: 设置 › 高级 页输入 debug → 通用 页主题下拉框出现 Acri/Rachni/System;关闭设置窗口再打开,隐藏主题消失',
-            '低版本升级迁移(用旧版安装树跑本包后首次启动): 排布自动变为四块、录像编码器按本机硬件重探测(HEVC,无则回退)、Java 判别自动为宽松',
-            '低版本升级迁移幂等: 迁移后手动调整排布,重启不再被覆盖(标记已置 1)',
-            '录像默认编码器: 全新安装或「重置配置」后 设置 › 输出 › 录像 的编码器为 HEVC (NVIDIA NVENC HEVC / AMD HEVC)',
-            '录像关键帧间隔: 设置 › 输出 › 录像 的「关键帧间隔(秒,0=自动)」为 0',
-            '串流默认编码器仍为 H.264 (设置 › 输出 › 串流)',
-            '串流速率控制: 设置 › 输出 › 串流 的「速率控制」为 CBR、码率 4500 Kbps',
-            'Java 判别: 设置 › 高级 的「Java 判别」默认为 宽松(未被升级迁移覆盖时,手动改成严格后重启仍保持严格)',
-            '默认布局: 全新安装或「停靠 → 重置界面」后为四块排布(上: 统计 + 预览;下: 音轨与路由 + 混音器 + 场景/来源 + 控件)',
-            '主窗口启动时居中于主屏工作区(不再沿用上次位置)',
-            '虚拟摄像机: 控件面板有「启动虚拟摄像机」,DirectShow 设备列表出现 OBS Virtual Camera 且自环出画面',
-            '虚拟摄像机模块被浏览器占用时安装: 不弹窗、不杀进程,静默跳过该文件并完成安装',
-            '安装器: 运行 OBS-PT-1.2.0-Installer.exe 到 Setup 主窗口,常规安装/升级流程无异常'
-        )
-        primaryEntry      = 'bin/OBS-PT.exe'
-        primaryEntryBytes = $exeBytes
-        primaryEntrySha256 = $exeHash
-        files             = $appFiles
-    }
-    installer     = [ordered]@{
-        status            = 'pending-manual-acceptance'
-        source            = [ordered]@{
-            kind   = 'input-fingerprint'
-            value  = $fingerprint
-            inputs = $inputSets
-        }
-        buildCommand      = 'makensis UI/installer/obspt-setup.nsi'
-        acceptanceCommand = '7z t + manual Setup window launch'
-        pendingSinceUtc   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-        pendingManualItems = @(
-            '安装器: 运行 OBS-PT-1.2.0-Installer.exe 到 Setup 主窗口,常规安装/升级流程无异常',
-            '安装后 DirectShow 设备列表出现 OBS Virtual Camera,自环出画面;卸载后设备消失'
-        )
-        primaryEntry      = $null
-        files             = @(
-            [pscustomobject]@{
-                path   = ".target/installer/OBS-PT-$version-Installer.exe"
-                bytes  = (Get-Item -LiteralPath $installerExe).Length
-                sha256 = (Get-FileHash -LiteralPath $installerExe -Algorithm SHA256).Hash.ToLower()
-            }
-        )
+$inputs = @('CMakeLists.txt', 'UI', 'libobs', 'plugins', 'cmake', 'deps2019', 'C:/Qt/5.15.2/msvc2019_64')
+$inputs += @(Get-ChildItem $repo -Directory -Filter 'libobs-*' | Select-Object -ExpandProperty Name)
+$lines = [Collections.Generic.List[string]]::new()
+foreach ($set in $inputs) {
+    $path = if ([IO.Path]::IsPathRooted($set)) { $set } else { Join-Path $repo $set }
+    $files = if (Test-Path $path -PathType Leaf) { @(Get-Item $path) } else { @(Get-ChildItem $path -Recurse -File | Where-Object { $_.FullName -notmatch '[\\/]\.git([\\/]|$)' }) }
+    foreach ($f in $files) {
+        $relative = if ($f.FullName.StartsWith($repo + '\', [StringComparison]::OrdinalIgnoreCase)) { $f.FullName.Substring($repo.Length + 1) } else { $f.FullName }
+        $lines.Add($relative.Replace('\', '/') + [char]0 + (Hash $f.FullName) + "`n")
     }
 }
-$doc | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $target 'delivery.json') -Encoding UTF8
-
-"app files      : $($appFiles.Count)"
-"fingerprint    : $fingerprint"
-"app exe sha256 : $exeHash"
-"installer      : $((Get-Item $installerExe).Length) bytes"
+$lines.Sort([StringComparer]::Ordinal)
+$fingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($lines -join '')))).ToLowerInvariant()
+$source = @{ kind = 'input-fingerprint'; value = $fingerprint; inputs = $inputs; algorithm = 'SHA256 ordinal UTF8 path + NUL + file SHA256 + LF' }
+$stamp = (Get-Date).ToUniversalTime().ToString('o')
+$manual = @($old.app.pendingManualItems | ForEach-Object { $_.Replace('OBS-PT-1.2.0-Installer.exe', "OBS-PT-$Version-Installer.exe") })
+$manual += @(
+    '080/081: Select the CBZ window in Game Capture; verify active cooperative status, counters, preview, recording, resize/fullscreen and restart recovery.',
+    '081: Force ordinary capture, then disable it; verify actual path/reason and complete recordings. Unsupported clients retain ordinary capture.',
+    '082: Gameplay A/B/C at unchanged 480 FPS/resolution/quality, 30 seconds, >=4 GiB free RAM, reversed order twice; collect real frame times, lag and repeat/missing-image evidence. No performance improvement claimed until accepted.',
+    '082: Upgrade from 1.2.0 preserves existing layout, encoder, Java choice, scene target and portable settings. Public release requires approval.'
+)
+$productDirs = @('bin', 'data', 'obs-plugins', 'include', 'cmake')
+$movedAccepted = $false
+$createdConfig = $false
+$changedDirs = [Collections.Generic.List[string]]::new()
+$restored = $false
+New-Item -ItemType Directory $rollback | Out-Null
+try {
+    if ($old.app.status -eq 'accepted' -and (Test-Path $app)) {
+        Move-Item $app $previous
+        $movedAccepted = $true
+    }
+    New-Item -ItemType Directory -Force $app | Out-Null
+    if (Test-Path $receipt) { Copy-Item $receipt "$rollback/delivery.json" }
+    foreach ($name in $productDirs) {
+        $dest = Join-Path $app $name
+        if (Test-Path $dest) { Move-Item $dest (Join-Path $rollback $name) }
+        $changedDirs.Add($name)
+        if (Test-Path (Join-Path $staging $name)) { Copy-Item (Join-Path $staging $name) $dest -Recurse }
+    }
+    # Fresh install only; an existing User Data Root is user-owned.
+    if (-not (Test-Path "$app/obs-studio")) {
+        $config = if ($movedAccepted) { "$previous/obs-studio" } else { "$staging/obs-studio" }
+        if (Test-Path $config) {
+            $createdConfig = $true
+            Copy-Item $config "$app/obs-studio" -Recurse
+        }
+    }
+    if ($movedAccepted -and (Test-Path "$previous/recordings")) { Move-Item "$previous/recordings" "$app/recordings" }
+    foreach ($name in $productDirs) {
+        $src = Join-Path $staging $name
+        if (Test-Path $src) { foreach ($f in Get-ChildItem $src -Recurse -File) {
+            $dest = Join-Path (Join-Path $app $name) $f.FullName.Substring($src.Length + 1)
+            if ((Hash $dest) -ne (Hash $f.FullName)) { throw "Delivery hash mismatch: $dest" }
+        } }
+    }
+    $doc = $old
+    $doc.schemaVersion = 1; $doc.project = 'OBS-PT'
+    $doc.app = @{
+        status = 'pending-manual-acceptance'; version = $Version; directory = '.target/.distribution/app'; source = $source
+        releaseConfiguration = 'VS2022 v143 x64 RelWithDebInfo; BUILD_TESTS=OFF'
+        buildCommand = 'cmake --build .target --config RelWithDebInfo; cmake --install --prefix .target/_pkg/OBS-PT; obspt-refresh-delivery.ps1'
+        pendingSinceUtc = $stamp; pendingManualItems = @($manual | Select-Object -Unique)
+        primaryEntry = 'bin/OBS-PT.exe'; primaryEntryBytes = (Get-Item "$app/bin/OBS-PT.exe").Length
+        primaryEntrySha256 = Hash "$app/bin/OBS-PT.exe"; files = Manifest $app
+        performance = @{ status = 'pending-manual-acceptance'; improvementClaimed = $false }
+    }
+    $doc.installer = @{
+        status = 'pending-manual-acceptance'; version = $Version; source = $source
+        buildCommand = 'makensis UI/installer/obspt-setup.nsi'; pendingSinceUtc = $stamp
+        pendingManualItems = @('Complete install/upgrade on target system; publication requires explicit approval')
+        files = @(@{path = ".target/.distribution/installer/OBS-PT-$Version-Installer.exe"; bytes = (Get-Item $installerExe).Length; sha256 = Hash $installerExe})
+    }
+    $doc | ConvertTo-Json -Depth 12 | Set-Content "$rollback/new-receipt.json" -Encoding utf8
+    Move-Item "$rollback/new-receipt.json" $receipt -Force
+    $restored = $true
+} catch {
+    foreach ($name in $changedDirs) {
+        if (Test-Path (Join-Path $app $name)) { Remove-Item (Join-Path $app $name) -Recurse -Force }
+        if (Test-Path (Join-Path $rollback $name)) {
+            Move-Item (Join-Path $rollback $name) (Join-Path $app $name)
+        }
+    }
+    if ($createdConfig -and (Test-Path "$app/obs-studio")) { Remove-Item "$app/obs-studio" -Recurse -Force }
+    if (Test-Path "$rollback/delivery.json") { Copy-Item "$rollback/delivery.json" $receipt -Force }
+    if ($movedAccepted) {
+        if (Test-Path "$app/recordings") { Move-Item "$app/recordings" "$previous/recordings" }
+        Remove-Item $app -Recurse -Force
+        Move-Item $previous $app
+    }
+    $restored = $true
+    throw
+} finally {
+    if ($restored) { Remove-Item $rollback -Recurse -Force }
+}
+"App SHA256: $($doc.app.primaryEntrySha256)"
+"Installer SHA256: $($doc.installer.files[0].sha256)"
+"Input fingerprint: $fingerprint"

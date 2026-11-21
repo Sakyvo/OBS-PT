@@ -17,6 +17,8 @@
 #include "cursor-capture.h"
 #include "app-helpers.h"
 #include "nt-stuff.h"
+#include "client-capture.h"
+#include "client-capture-policy.h"
 
 #define do_log(level, format, ...)                  \
 	blog(level, "[game-capture: '%s'] " format, \
@@ -40,6 +42,7 @@
 #define SETTING_CAPTURE_OVERLAYS     "capture_overlays"
 #define SETTING_ANTI_CHEAT_HOOK      "anti_cheat_hook"
 #define SETTING_HOOK_RATE            "hook_rate"
+#define SETTING_FORCE_LEGACY         "obspt_force_legacy_capture"
 
 /* deprecated */
 #define SETTING_ANY_FULLSCREEN   "capture_any_fullscreen"
@@ -106,6 +109,7 @@ struct game_capture_config {
 	enum capture_mode mode;
 	bool cursor;
 	bool force_shmem;
+	bool force_legacy;
 	bool allow_transparency;
 	bool limit_framerate;
 	bool capture_overlays;
@@ -159,6 +163,11 @@ struct game_capture {
 
 	ipc_pipe_server_t pipe;
 	gs_texture_t *texture;
+	struct client_capture *client;
+	const char *client_status;
+	DWORD client_failed_pid;
+	unsigned client_failures;
+	float client_status_time;
 	gs_texture_t *extra_texture;
 	gs_texrender_t *extra_texrender;
 	bool linear_sample;
@@ -349,6 +358,15 @@ static void stop_capture(struct game_capture *gc)
 	close_handle(&gc->texture_mutexes[1]);
 
 	obs_enter_graphics();
+	if (gc->client) {
+		uint64_t produced, skipped, overwritten;
+		client_capture_counters(gc->client, &produced, &skipped, &overwritten);
+		info("client-assisted totals: published=%" PRIu64 ", skipped=%" PRIu64 ", overwritten=%" PRIu64,
+		     produced, skipped, overwritten);
+		client_capture_close(gc->client);
+		gc->client = NULL;
+		gc->texture = NULL;
+	}
 	gs_texrender_destroy(gc->extra_texrender);
 	gc->extra_texrender = NULL;
 	gs_texture_destroy(gc->extra_texture);
@@ -364,6 +382,7 @@ static void stop_capture(struct game_capture *gc)
 	gc->wait_for_target_startup = false;
 	gc->active = false;
 	gc->capturing = false;
+	obs_source_update_properties(gc->source);
 
 	if (gc->retrying)
 		gc->retrying--;
@@ -429,6 +448,7 @@ static inline void get_config(struct game_capture_config *cfg,
 	cfg->java_detection_lenient =
 		obs_data_get_bool(settings, SETTING_JAVA_DETECTION_LENIENT);
 	cfg->force_shmem = obs_data_get_bool(settings, SETTING_COMPATIBILITY);
+	cfg->force_legacy = obs_data_get_bool(settings, SETTING_FORCE_LEGACY);
 	cfg->cursor = obs_data_get_bool(settings, SETTING_CURSOR);
 	cfg->allow_transparency =
 		obs_data_get_bool(settings, SETTING_TRANSPARENCY);
@@ -463,7 +483,8 @@ static inline bool capture_needs_reset(struct game_capture_config *cfg1,
 		    cfg1->priority != cfg2->priority)) {
 		return true;
 
-	} else if (cfg1->force_shmem != cfg2->force_shmem) {
+	} else if (cfg1->force_shmem != cfg2->force_shmem ||
+		   cfg1->force_legacy != cfg2->force_legacy) {
 		return true;
 
 	} else if (cfg1->limit_framerate != cfg2->limit_framerate) {
@@ -551,6 +572,7 @@ static void game_capture_update(void *data, obs_data_t *settings)
 
 	if (!gc->initial_config) {
 		if (reset_capture) {
+			gc->client_failures = 0;
 			stop_capture(gc);
 		}
 	} else {
@@ -744,6 +766,15 @@ static inline bool attempt_existing_hook(struct game_capture *gc)
 	}
 
 	return false;
+}
+
+static uint64_t client_frame_interval(struct game_capture *gc)
+{
+	struct obs_video_info ovi;
+	if (!obs_get_video_info(&ovi))
+		return 0;
+	uint64_t interval = util_mul_div64(ovi.fps_den, 1000000000ULL, ovi.fps_num);
+	return gc->config.limit_framerate ? interval : interval / 2;
 }
 
 static inline void reset_frame_interval(struct game_capture *gc)
@@ -1039,6 +1070,34 @@ static bool init_hook(struct game_capture *gc)
 	}
 	if (!open_target_process(gc)) {
 		return false;
+	}
+	if (gc->client_failed_pid != gc->process_id) {
+		gc->client_failed_pid = gc->process_id;
+		gc->client_failures = 0;
+		gc->client_status = NULL;
+	}
+	const char *reason = gc->config.force_legacy ? "ClientCapture.Forced" :
+		gc->config.force_shmem ? "ClientCapture.Compatibility" : gc->client_status;
+	if (client_capture_should_attempt(gc->config.force_legacy,
+					 gc->config.force_shmem, gc->client_failures)) {
+		obs_enter_graphics();
+		gc->client = client_capture_open(gc->process_id, client_frame_interval(gc), &reason);
+		obs_leave_graphics();
+		if (gc->client) {
+			gc->client_status = "ClientCapture.Waiting";
+			gc->window = gc->next_window;
+			gc->next_window = NULL;
+			gc->active = true;
+			gc->retrying = 0;
+			info("client-assisted session opened (no injection)");
+			obs_source_update_properties(gc->source);
+			return true;
+		}
+	}
+	if (reason && (!gc->client_status || strcmp(gc->client_status, reason))) {
+		gc->client_status = reason;
+		info("using ordinary game capture: %s", reason);
+		obs_source_update_properties(gc->source);
 	}
 	if (!init_keepalive(gc)) {
 		return false;
@@ -1814,6 +1873,47 @@ static void game_capture_tick(void *data, float seconds)
 		stop_capture(gc);
 	}
 
+	if (gc->client && gc->active) {
+		obs_enter_graphics();
+		enum client_capture_result result = client_capture_tick(gc->client,
+			client_frame_interval(gc), &gc->texture);
+		if (result == CLIENT_CAPTURE_FRAME) {
+			gc->cx = gs_texture_get_width(gc->texture);
+			gc->cy = gs_texture_get_height(gc->texture);
+			gc->linear_sample = true;
+		}
+		obs_leave_graphics();
+		if (result == CLIENT_CAPTURE_LOST || result == CLIENT_CAPTURE_RESTART) {
+			gc->client_status = client_capture_reason(gc->client);
+			if (result == CLIENT_CAPTURE_LOST)
+				gc->client_failures++;
+			info("client-assisted session lost: %s", gc->client_status);
+			stop_capture(gc);
+			gc->retry_time = 0.0f;
+			obs_source_update_properties(gc->source);
+		} else {
+			if (result == CLIENT_CAPTURE_FRAME && !gc->capturing) {
+				gc->capturing = true;
+				gc->client_status = "ClientCapture.Active";
+				info("client-assisted shared texture capture successful");
+				obs_source_update_properties(gc->source);
+			}
+			gc->client_status_time += seconds;
+			if (gc->client_status_time >= 2.0f) {
+				gc->client_status_time = 0;
+				obs_source_update_properties(gc->source);
+			}
+			if (gc->config.cursor) {
+				check_foreground_window(gc, seconds);
+				obs_enter_graphics();
+				cursor_capture(&gc->cursor_data);
+				obs_leave_graphics();
+			}
+			gc->showing = true;
+			return;
+		}
+	}
+
 	if (gc->active && !gc->hook_ready && gc->process_id) {
 		gc->hook_ready = open_event_gc(gc, EVENT_HOOK_READY);
 	}
@@ -1916,10 +2016,10 @@ static inline void game_capture_render_cursor(struct game_capture *gc)
 	POINT p = {0};
 	HWND window;
 
-	if (!gc->global_hook_info->cx || !gc->global_hook_info->cy)
+	if (!gc->cx || !gc->cy)
 		return;
 
-	window = !!gc->global_hook_info->window
+	window = !gc->client && gc->global_hook_info->window
 			 ? (HWND)(uintptr_t)gc->global_hook_info->window
 			 : gc->window;
 
@@ -1935,8 +2035,7 @@ static inline void game_capture_render_cursor(struct game_capture *gc)
 	if (previous)
 		gc->set_thread_dpi_awareness_context(previous);
 
-	cursor_draw(&gc->cursor_data, -p.x, -p.y, gc->global_hook_info->cx,
-		    gc->global_hook_info->cy);
+	cursor_draw(&gc->cursor_data, -p.x, -p.y, gc->cx, gc->cy);
 }
 
 static void game_capture_render(void *data, gs_effect_t *unused)
@@ -1992,7 +2091,7 @@ static void game_capture_render(void *data, gs_effect_t *unused)
 	}
 
 	gs_eparam_t *const image = gs_effect_get_param_by_name(effect, "image");
-	const uint32_t flip = gc->global_hook_info->flip ? GS_FLIP_V : 0;
+	const uint32_t flip = !gc->client && gc->global_hook_info->flip ? GS_FLIP_V : 0;
 	const char *tech_name = allow_transparency && !linear_sample
 					? "DrawSrgbDecompress"
 					: "Draw";
@@ -2048,6 +2147,7 @@ static void game_capture_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, SETTING_WINDOW_PRIORITY,
 				 (int)WINDOW_PRIORITY_EXE);
 	obs_data_set_default_bool(settings, SETTING_COMPATIBILITY, false);
+	obs_data_set_default_bool(settings, SETTING_FORCE_LEGACY, false);
 	obs_data_set_default_bool(settings, SETTING_CURSOR, true);
 	obs_data_set_default_bool(settings, SETTING_TRANSPARENCY, false);
 	obs_data_set_default_bool(settings, SETTING_LIMIT_FRAMERATE, true);
@@ -2105,6 +2205,14 @@ static bool window_not_blacklisted(const char *title, const char *class,
 	return !is_blacklisted_exe(exe);
 }
 
+static bool capture_status_clicked(obs_properties_t *props, obs_property_t *property, void *data)
+{
+	UNUSED_PARAMETER(props);
+	UNUSED_PARAMETER(property);
+	UNUSED_PARAMETER(data);
+	return false;
+}
+
 static obs_properties_t *game_capture_properties(void *data)
 {
 	HMONITOR monitor;
@@ -2142,6 +2250,23 @@ static obs_properties_t *game_capture_properties(void *data)
 
 	obs_properties_t *ppts = obs_properties_create();
 	obs_property_t *p;
+	struct game_capture *gc = data;
+	struct dstr status = {0};
+	obs_enter_graphics();
+	dstr_copy(&status, obs_module_text(gc && gc->active && gc->client_status ? gc->client_status : "ClientCapture.Idle"));
+	if (gc && gc->client) {
+		uint64_t produced, skipped, overwritten;
+		client_capture_counters(gc->client, &produced, &skipped, &overwritten);
+		dstr_catf(&status, "\n%s: %" PRIu64 " / %s: %" PRIu64 " / %s: %" PRIu64,
+			obs_module_text("ClientCapture.Produced"), produced,
+			obs_module_text("ClientCapture.Skipped"), skipped,
+			obs_module_text("ClientCapture.Overwritten"), overwritten);
+	}
+	obs_leave_graphics();
+	p = obs_properties_add_button(ppts, "obspt_capture_status", status.array, capture_status_clicked);
+	obs_property_set_enabled(p, false);
+	dstr_free(&status);
+	obs_properties_add_bool(ppts, SETTING_FORCE_LEGACY, obs_module_text("ClientCapture.ForceLegacy"));
 
 	p = obs_properties_add_list(ppts, SETTING_MODE, TEXT_MODE,
 				    OBS_COMBO_TYPE_LIST,

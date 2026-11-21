@@ -2,7 +2,7 @@
 ManifestDPIAware true
 
 !define APP_NAME "OBS-PT"
-!define APP_VERSION "1.2.0"
+!define APP_VERSION "1.3.0"
 !define COMPANY_NAME "OBS-PT"
 !define INSTALLER_NAME "OBS-PT-${APP_VERSION}-Installer.exe"
 !define SOURCE_DIR "..\..\.target\_pkg\OBS-PT"
@@ -32,11 +32,13 @@ ManifestDPIAware true
 ; replace anything. The marker is deliberately separate from
 ; BootstrapVersion, whose repair cargo (forcing PotPvP and FirstRun) this
 ; migration must not drag in.
+; This release adds capture, not another default replacement.
+!define MIGRATION_RELEASE "1.2.0"
 !define MIGRATION_PENDING "0"
 !define MIGRATION_DONE "1"
 
 Name "${APP_NAME} ${APP_VERSION}"
-OutFile "..\..\.target\installer\${INSTALLER_NAME}"
+OutFile "..\..\.target\.distribution\installer\${INSTALLER_NAME}"
 VIProductVersion "${APP_VERSION}.0"
 VIAddVersionKey /LANG=1033 "ProductName" "${APP_NAME}"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${APP_VERSION}"
@@ -481,7 +483,7 @@ Function MarkInstallerMigration
 	ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "DisplayVersion"
 	${If} $0 != ""
 		; VersionCompare yields 2 when the second operand is newer.
-		${VersionCompare} $0 "${APP_VERSION}" $1
+		${VersionCompare} $0 "${MIGRATION_RELEASE}" $1
 		${If} $1 == 2
 			StrCpy $MigrationValue "${MIGRATION_PENDING}"
 		${EndIf}

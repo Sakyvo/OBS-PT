@@ -21,6 +21,7 @@ set(win-capture_SOURCES
 	inject-library.c
 	cursor-capture.c
 	game-capture.c
+	client-capture.cpp
 	monitor-capture.c
 	window-capture.c
 	load-graphics-offsets.c
@@ -35,7 +36,11 @@ add_library(win-capture MODULE
 target_link_libraries(win-capture
 	${win-capture_PLATFORM_DEPS}
 	libobs
+	d3d11
+	dxgi
+	advapi32
 	ipc-util)
+set_property(TARGET win-capture PROPERTY CXX_STANDARD 17)
 set_target_properties(win-capture PROPERTIES FOLDER "plugins/win-capture")
 
 install_obs_plugin_with_data(win-capture data)
